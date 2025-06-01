@@ -24,7 +24,7 @@ Welcome to Muscle Memory support. We're here to help you get the most out of you
 If you need additional help or have suggestions for improving Muscle Memory, please:
 
 1. Create an issue on our [GitHub repository](https://github.com/RecoveryTracker/muscle-memory-privacy/issues)
-2. Email us at musclememory.app@gmail.com
+2. Email us at musclememory.dev@gmail.com
 
 We typically respond within 24-48 hours.
 
@@ -32,7 +32,7 @@ We typically respond within 24-48 hours.
 
 We love hearing your ideas! Submit feature requests through:
 - Our GitHub repository's Issues section
-- Email to musclememory.app@gmail.com
+- Email to musclememory.dev@gmail.com
 
 ## Privacy
 

@@ -39,7 +39,7 @@ We will notify users of any changes to this privacy policy through app updates.
 
 ## Contact
 For questions about this privacy policy, contact:
-musclememory.app@gmail.com
+musclememory.dev@gmail.com
 
 ## Children's Privacy
 This app is not intended for use by children under 13.

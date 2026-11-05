@@ -6,8 +6,8 @@ Welcome to Muscle Memory support. We're here to help you get the most out of you
 
 ### Data Management
 - **How is my data stored?** All your workout data is stored locally on your device.
-- **Can I backup my data?** Your data is automatically backed up with your regular iOS device backups.
-- **How do I delete my data?** You can delete all app data through your iOS device settings.
+- **Can I back up my data?** Yes. Use *Export Full Backup* in the app to save a backup file, and *Import* to restore it. On iPhone and iPad you can also turn on iCloud backup, and your data is included in your regular device backups.
+- **How do I delete my data?** Delete the app, or clear its data in your device settings.
 
 ### Workout Tracking
 - **How do I add a new workout?** Tap the "+" button on any tab to create a new workout.

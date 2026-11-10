@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>body{margin:0}[hidden]{display:none!important}</style>
+</head>
+<body>
+<title>Talon & Thermal</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bowlby+One&family=DM+Sans:wght@400;600;700&display=swap">
+<style>
+  /* Layout: one full-bleed canvas of dawn sky over a lake; a thin HUD strip on top, a centred card for start / end. */
+  :root {
+    color-scheme: dark;
+    --sky-top: #14304a;
+    --sky-low: #f2a973;
+    --ink: #0e2233;
+    --paper: #fff4e2;
+    --gold: #ffc64a;
+    --danger: #ff6b57;
+    --panel: rgba(14, 34, 51, 0.78);
+    --display: "Bowlby One", "Arial Black", Impact, sans-serif;
+    --body: "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  html, body { height: 100%; }
+  body {
+    background: var(--sky-top);
+    color: var(--paper);
+    font-family: var(--body);
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+  .stage {
+    position: relative;
+    height: 100%;
+    overflow: hidden;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+  .hud {
+    position: absolute; inset: 0 0 auto 0;
+    display: flex; align-items: center; gap: 14px;
+    padding-block: 12px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    font-weight: 700; font-size: 15px;
+    font-variant-numeric: tabular-nums;
+    text-shadow: 0 1px 2px rgba(14, 34, 51, 0.6);
+    pointer-events: none;
+  }
+  .hud .stat { white-space: nowrap; }
+  .hud .label { font-weight: 600; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.8; margin-right: 5px; }
+  .meter {
+    flex: 1; min-width: 0; height: 12px;
+    background: rgba(14, 34, 51, 0.45);
+    border: 2px solid var(--paper);
+    border-radius: 999px; overflow: hidden;
+  }
+  .meter i { display: block; height: 100%; width: 100%; background: var(--gold); border-radius: 999px; }
+  .meter.low i { background: var(--danger); }
+
+  .card-wrap {
+    position: absolute; inset: 0;
+    display: grid; place-items: center;
+    padding-block: 16px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  .card {
+    width: min(100%, 400px);
+    background: var(--panel);
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    border-radius: 18px;
+    padding: 26px 24px 22px;
+    display: flex; flex-direction: column; gap: 14px;
+    text-align: left;
+  }
+  h1 {
+    font-family: var(--display); font-weight: 400;
+    font-size: clamp(30px, 9vw, 42px); line-height: 1.02;
+    margin: 0; color: var(--gold); text-wrap: balance;
+  }
+  .card ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; font-size: 16px; line-height: 1.4; }
+  .card li b { color: var(--gold); }
+  .tally { display: flex; gap: 22px; flex-wrap: wrap; font-variant-numeric: tabular-nums; }
+  .tally div { display: flex; flex-direction: column; }
+  .tally strong { font-family: var(--display); font-weight: 400; font-size: 28px; }
+  .tally span { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.8; }
+  button {
+    font: 700 18px var(--body);
+    color: var(--ink); background: var(--gold);
+    border: 0; border-radius: 999px;
+    padding: 14px 22px; cursor: pointer;
+  }
+  button:focus-visible { outline: 3px solid var(--paper); outline-offset: 3px; }
+  .hint { font-size: 13px; opacity: 0.75; margin: 0; }
+</style>
+
+<div class="stage" id="stage">
+  <canvas id="sky" aria-label="Eagle flying over a lake"></canvas>
+
+  <div class="hud" id="hud" hidden>
+    <span class="stat"><span class="label">Fish</span><span id="hudFish">0</span></span>
+    <span class="stat"><span class="label">Flown</span><span id="hudDist">0 m</span></span>
+    <div class="meter" id="meter" role="img" aria-label="Energy"><i id="meterFill"></i></div>
+  </div>
+
+  <div class="card-wrap" id="startWrap">
+    <div class="card">
+      <h1>Talon &amp; Thermal</h1>
+      <ul>
+        <li><b>Hold</b> to flap and climb. <b>Let go</b> to dive.</li>
+        <li>Snatch leaping fish to keep your energy up.</li>
+        <li>Warm thermals lift you for free. Storm clouds knock you down.</li>
+      </ul>
+      <button id="startBtn" type="button">Take off</button>
+      <p class="hint">Touch, mouse, or the space bar.</p>
+    </div>
+  </div>
+
+  <div class="card-wrap" id="overWrap" hidden>
+    <div class="card">
+      <h1>Out of energy</h1>
+      <div class="tally">
+        <div><strong id="endFish">0</strong><span>Fish caught</span></div>
+        <div><strong id="endDist">0 m</strong><span>Flown</span></div>
+        <div><strong id="endBest">0</strong><span>Best catch</span></div>
+      </div>
+      <button id="againBtn" type="button">Fly again</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const cv = $('sky'), c = cv.getContext('2d');
+  const VH = 600, WATER = 540, G = 900, MIN_VW = 540;
+  let S = 1, VW = 800, yOff = 0, EX = 150;
+
+  function resize() {
+    const r = cv.getBoundingClientRect();
+    const d = Math.min(2, window.devicePixelRatio || 1);
+    cv.width = Math.max(1, Math.round(r.width * d));
+    cv.height = Math.max(1, Math.round(r.height * d));
+    S = Math.min(cv.height / VH, cv.width / MIN_VW);
+    VW = cv.width / S;
+    yOff = cv.height / S - VH;          // extra sky above on tall screens
+    EX = Math.max(120, VW * 0.26);
+  }
+  addEventListener('resize', resize);
+  resize();
+
+  // ---------- state ----------
+  let state = 'ready', hold = false, t = 0, overAt = 0;
+  let wx = 0, speed = 130, energy = 100, caught = 0, hurt = 0, dunkCd = 0, flap = 0;
+  const e = { y: 250, vy: 0 };
+  let fish = [], clouds = [], therms = [], parts = [];
+  let nextFish = 500, nextCloud = 900, nextTherm = 1300;
+  let best = 0;
+  try { best = +localStorage.getItem('tt-best') || 0; } catch (_) {}
+
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const metres = () => Math.floor(wx / 12);
+  const fmtDist = m => m < 1000 ? m + ' m' : (m / 1000).toFixed(2) + ' km';
+
+  function reset() {
+    wx = 0; speed = 230; energy = 100; caught = 0; hurt = 0; dunkCd = 0;
+    e.y = 240; e.vy = 0;
+    fish = []; clouds = []; therms = []; parts = [];
+    nextFish = VW * 0.9; nextCloud = VW + 500; nextTherm = VW + 900;
+  }
+
+  function spawn() {
+    const ahead = wx + VW + 120;
+    while (nextFish < ahead) {
+      fish.push({ x: nextFish, vy0: rnd(300, 540), t: rnd(0, 2), gold: Math.random() < 0.08 });
+      nextFish += rnd(380, 700);
+    }
+    while (nextCloud < ahead) {
+      clouds.push({ x: nextCloud, y: rnd(90, 400), r: rnd(44, 70), fl: rnd(0, 4) });
+      nextCloud += Math.max(360, 780 - wx / 90) * rnd(0.7, 1.4);
+    }
+    while (nextTherm < ahead) {
+      therms.push({ x: nextTherm, w: 120 });
+      nextTherm += rnd(1500, 2400);
+    }
+    const behind = wx - EX - 200;
+    fish = fish.filter(f => f.x > behind);
+    clouds = clouds.filter(k => k.x > behind);
+    therms = therms.filter(k => k.x > behind);
+  }
+
+  // ---------- sound ----------
+  let ac = null;
+  function beep(freq, dur, type, vol) {
+    try {
+      ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = type || 'sine'; o.frequency.value = freq;
+      g.gain.setValueAtTime(vol || 0.08, ac.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + dur);
+      o.connect(g); g.connect(ac.destination);
+      o.start(); o.stop(ac.currentTime + dur);
+    } catch (_) {}
+  }
+
+  // ---------- input ----------
+  function start() {
+    if (state === 'play') return;
+    reset();
+    state = 'play';
+    $('startWrap').hidden = true; $('overWrap').hidden = true; $('hud').hidden = false;
+    beep(520, 0.12);
+  }
+  function gameOver() {
+    state = 'over'; hold = false; overAt = t;
+    if (caught > best) { best = caught; try { localStorage.setItem('tt-best', best); } catch (_) {} }
+    $('endFish').textContent = caught;
+    $('endDist').textContent = fmtDist(metres());
+    $('endBest').textContent = best;
+    $('overWrap').hidden = false;
+    beep(160, 0.5, 'triangle');
+  }
+  $('startBtn').addEventListener('click', start);
+  $('againBtn').addEventListener('click', () => { if (t - overAt > 0.4) start(); });
+  const stage = $('stage');
+  stage.addEventListener('pointerdown', ev => { if (state === 'play') { hold = true; ev.preventDefault(); } });
+  addEventListener('pointerup', () => { hold = false; });
+  addEventListener('pointercancel', () => { hold = false; });
+  stage.addEventListener('contextmenu', ev => ev.preventDefault());
+  addEventListener('keydown', ev => {
+    if (ev.code !== 'Space' && ev.code !== 'ArrowUp') return;
+    ev.preventDefault();
+    if (state === 'play') hold = true;
+    else if (!ev.repeat && (state === 'ready' || t - overAt > 0.6)) start();
+  });
+  addEventListener('keyup', ev => { if (ev.code === 'Space' || ev.code === 'ArrowUp') hold = false; });
+  addEventListener('blur', () => { hold = false; });
+
+  // ---------- update ----------
+  function burst(x, y, n, color, up) {
+    for (let i = 0; i < n; i++) parts.push({ x, y, vx: rnd(-90, 90), vy: rnd(-220, -40) * (up || 1), life: rnd(0.4, 0.9), color, r: rnd(1.5, 3.5) });
+  }
+  function label(x, y, text, color) { parts.push({ x, y, vx: 0, vy: -50, life: 1, color, text }); }
+
+  function update(dt) {
+    t += dt;
+    if (state === 'ready') {
+      wx += 120 * dt;
+      e.y = 250 + Math.sin(t * 0.9) * 45; e.vy = Math.cos(t * 0.9) * 40;
+    } else if (state === 'over') {
+      wx += speed * dt; speed *= Math.pow(0.3, dt);
+      e.vy = Math.min(e.vy + 500 * dt, 420);
+      e.y = Math.min(e.y + e.vy * dt, WATER - 4);
+    } else {
+      const inTherm = therms.some(k => Math.abs(k.x - wx) < k.w / 2);
+      let ay = hold ? -860 : 640;
+      if (inTherm) ay -= 560;
+      e.vy = clamp(e.vy + ay * dt, -360, 520);
+      e.y += e.vy * dt;
+      const top = 66 - yOff;
+      if (e.y < top) { e.y = top; e.vy = Math.max(0, e.vy); }
+      dunkCd -= dt; hurt -= dt;
+      if (e.y > WATER - 6) {
+        e.y = WATER - 6; e.vy = -230;
+        if (dunkCd <= 0) { energy -= 7; speed *= 0.7; dunkCd = 0.6; burst(wx, WATER, 12, '#d9f1f5'); beep(200, 0.15, 'triangle'); }
+      }
+      const base = 230 + Math.min(120, wx / 300);
+      const target = base + Math.max(0, e.vy) * 0.3 - (hold ? 20 : 0);
+      speed += (target - speed) * Math.min(1, dt * 2.5);
+      wx += speed * dt;
+
+      energy -= (3.2 + Math.min(3, t * 0.02) + (hold && !inTherm ? 4.5 : 0)) * dt;
+      if (inTherm) energy += 6 * dt;
+
+      for (const f of fish) {
+        if (f.got || f.y === undefined) continue;
+        const dx = f.x - (wx + 8), dy = f.y - (e.y + 8);
+        if (f.air && dx * dx + dy * dy < 30 * 30) {
+          f.got = true; caught += f.gold ? 3 : 1; energy += f.gold ? 45 : 20;
+          label(f.x, f.y - 14, f.gold ? '+3' : '+1', f.gold ? '#ffc64a' : '#fff4e2');
+          burst(f.x, f.y, 6, '#d9f1f5');
+          beep(f.gold ? 990 : 740, 0.14); setTimeout(() => beep(f.gold ? 1320 : 990, 0.14), 70);
+        }
+      }
+      fish = fish.filter(f => !f.got);
+      if (hurt <= 0) for (const k of clouds) {
+        const dx = (k.x - wx) / (k.r * 1.35), dy = (k.y - e.y) / (k.r * 0.62);
+        if (dx * dx + dy * dy < 1) {
+          hurt = 1.2; energy -= 25; e.vy = 380; speed *= 0.75; k.fl = 0;
+          burst(wx, e.y, 9, '#5a3a22', -0.6); label(wx, e.y - 24, 'Zap!', '#ff6b57');
+          beep(90, 0.3, 'sawtooth', 0.1);
+          break;
+        }
+      }
+      energy = Math.min(100, energy);
+      if (energy <= 0) { energy = 0; gameOver(); }
+    }
+    flap += dt * (hold ? 13 : 0);
+    spawn();
+    for (const f of fish) {
+      f.t += dt;
+      const T = 2 * f.vy0 / G, tt = f.t % (T + 0.55);
+      f.air = tt < T; f.tt = tt; f.T = T;
+      f.y = f.air ? WATER - (f.vy0 * tt - 0.5 * G * tt * tt) : WATER + 6;
+      f.vyNow = f.vy0 - G * tt;
+    }
+    for (const k of clouds) { k.fl += dt; if (k.fl > 4.2) k.fl = 0; }
+    for (const p of parts) { p.life -= dt; p.x += p.vx * dt; p.y += p.vy * dt; if (!p.text) p.vy += 600 * dt; }
+    parts = parts.filter(p => p.life > 0);
+  }
+
+  // ---------- draw ----------
+  const noise = (x, s) => Math.sin(x * 0.004 + s) * 0.5 + Math.sin(x * 0.011 + s * 2.3) * 0.3 + Math.sin(x * 0.027 + s * 3.7) * 0.2;
+  function ridge(par, baseY, amp, seed, color, trees) {
+    c.fillStyle = color; c.beginPath(); c.moveTo(0, WATER);
+    for (let sx = 0; sx <= VW + 6; sx += 6) {
+      const x = wx * par + sx;
+      let y = baseY - amp * (0.5 + 0.5 * noise(x, seed));
+      if (trees) y -= Math.abs(((x * 0.07) % 2) - 1) * 13;
+      c.lineTo(sx, y);
+    }
+    c.lineTo(VW, WATER); c.closePath(); c.fill();
+  }
+
+  function drawEagle() {
+    const sx = EX, sy = e.y;
+    c.save(); c.translate(sx, sy);
+    c.rotate(clamp(Math.atan2(e.vy, 420), -0.7, 0.9));
+    if (hurt > 0 && Math.floor(hurt * 12) % 2) c.globalAlpha = 0.45;
+    // wing tip position: flapping, gliding, or tucked for a dive
+    let tipX = -16, tipY = -30;
+    if (state === 'play' && hold) tipY = -8 - Math.sin(flap) * 30;
+    else if (e.vy > 220) { tipX = -30; tipY = -9; }
+    const wing = (dx, col) => {
+      c.fillStyle = col; c.beginPath();
+      c.moveTo(10 + dx, -2);
+      c.quadraticCurveTo(6 + dx, tipY * 0.9, tipX + dx, tipY);
+      c.quadraticCurveTo(tipX - 8 + dx, tipY * 0.45, -14 + dx, 1);
+      c.closePath(); c.fill();
+    };
+    wing(5, '#3d2716');                       // far wing
+    c.fillStyle = '#fff4e2';                  // tail
+    c.beginPath(); c.moveTo(-18, -3); c.lineTo(-36, -6); c.lineTo(-37, 5); c.lineTo(-18, 4); c.closePath(); c.fill();
+    c.fillStyle = '#5a3a22';                  // body
+    c.beginPath(); c.ellipse(0, 0, 23, 8.5, 0, 0, 7); c.fill();
+    c.fillStyle = '#ffc64a';                  // talons
+    c.fillRect(-2, 7, 3, 6); c.fillRect(4, 7, 3, 6);
+    c.fillStyle = '#fff4e2';                  // head
+    c.beginPath(); c.arc(21, -3, 8, 0, 7); c.fill();
+    c.fillStyle = '#ffc64a';                  // beak
+    c.beginPath(); c.moveTo(27, -6); c.lineTo(38, -2); c.lineTo(34, 3); c.lineTo(27, 1); c.closePath(); c.fill();
+    c.fillStyle = '#0e2233';                  // eye
+    c.beginPath(); c.arc(23, -5, 1.6, 0, 7); c.fill();
+    wing(0, '#6e4a2c');                       // near wing
+    c.restore();
+  }
+
+  function draw() {
+    c.setTransform(S, 0, 0, S, 0, yOff * S);
+    const top = -yOff;
+    // sky
+    const sky = c.createLinearGradient(0, top, 0, WATER);
+    sky.addColorStop(0, '#14304a'); sky.addColorStop(0.45, '#3f6480');
+    sky.addColorStop(0.8, '#e8a07a'); sky.addColorStop(1, '#f6c98c');
+    c.fillStyle = sky; c.fillRect(0, top, VW, WATER - top);
+    // sun
+    const sunX = VW * 0.72, sunY = 452;
+    const glow = c.createRadialGradient(sunX, sunY, 10, sunX, sunY, 220);
+    glow.addColorStop(0, 'rgba(255,236,190,0.9)'); glow.addColorStop(1, 'rgba(255,236,190,0)');
+    c.fillStyle = glow; c.fillRect(0, top, VW, WATER - top);
+    c.fillStyle = '#fff1cf'; c.beginPath(); c.arc(sunX, sunY, 44, 0, 7); c.fill();
+    // mountains and shoreline
+    ridge(0.08, 500, 230, 1.3, '#7d7f9c');
+    ridge(0.18, 520, 170, 4.1, '#585d80');
+    ridge(0.38, 540, 95, 7.7, '#2f4257', true);
+    // thermals
+    for (const k of therms) {
+      const x = k.x - wx + EX;
+      if (x < -k.w || x > VW + k.w) continue;
+      const g = c.createLinearGradient(x - k.w / 2, 0, x + k.w / 2, 0);
+      g.addColorStop(0, 'rgba(255,198,74,0)'); g.addColorStop(0.5, 'rgba(255,198,74,0.2)'); g.addColorStop(1, 'rgba(255,198,74,0)');
+      c.fillStyle = g; c.fillRect(x - k.w / 2, top, k.w, WATER - top);
+      c.strokeStyle = 'rgba(255,244,226,0.55)'; c.lineWidth = 2; c.lineCap = 'round';
+      for (let i = 0; i < 6; i++) {
+        const span = WATER - top + 80;
+        const yy = WATER - ((t * 150 + i * span / 6 + k.x) % span);
+        const xx = x + Math.sin(i * 2.4 + k.x) * k.w * 0.28;
+        c.beginPath(); c.moveTo(xx, yy + 34);
+        c.quadraticCurveTo(xx + 9, yy + 17, xx, yy); c.stroke();
+      }
+    }
+    // water
+    const wat = c.createLinearGradient(0, WATER, 0, VH);
+    wat.addColorStop(0, '#3f8a96'); wat.addColorStop(1, '#17485a');
+    c.fillStyle = wat; c.fillRect(0, WATER, VW, VH - WATER + 2);
+    c.fillStyle = 'rgba(255,241,207,0.35)';
+    for (let i = 0; i < 5; i++) c.fillRect(sunX - 30 + Math.sin(t * 2 + i) * 6 - i * 4, WATER + 6 + i * 10, 60 + i * 8, 3);
+    c.fillStyle = 'rgba(255,244,226,0.3)';
+    for (let i = 0; i < 9; i++) {
+      const x = ((i * 173 - wx * (0.7 + (i % 3) * 0.15)) % (VW + 80) + VW + 80) % (VW + 80) - 40;
+      c.fillRect(x, WATER + 8 + (i * 17) % 48, 26, 2);
+    }
+    // fish
+    for (const f of fish) {
+      const x = f.x - wx + EX;
+      if (x < -40 || x > VW + 40) continue;
+      if (!f.air) {
+        const a = (f.tt - f.T) / 0.55;
+        c.strokeStyle = `rgba(255,244,226,${0.7 * (1 - a)})`; c.lineWidth = 2;
+        c.beginPath(); c.ellipse(x, WATER + 3, 6 + a * 22, 2 + a * 4, 0, 0, 7); c.stroke();
+        continue;
+      }
+      c.save(); c.translate(x, f.y); c.rotate(Math.atan2(-f.vyNow, 160));
+      c.fillStyle = f.gold ? '#ffc64a' : '#dbeaf0';
+      c.beginPath(); c.ellipse(0, 0, 13, 5.5, 0, 0, 7); c.fill();
+      c.beginPath(); c.moveTo(-10, 0); c.lineTo(-20, -7); c.lineTo(-20, 7); c.closePath(); c.fill();
+      c.fillStyle = '#0e2233'; c.beginPath(); c.arc(7, -1.5, 1.5, 0, 7); c.fill();
+      c.restore();
+    }
+    // storm clouds
+    for (const k of clouds) {
+      const x = k.x - wx + EX;
+      if (x < -160 || x > VW + 160) continue;
+      const r = k.r;
+      if (k.fl < 0.14) {
+        c.strokeStyle = '#fff1cf'; c.lineWidth = 3; c.lineJoin = 'round';
+        c.beginPath(); c.moveTo(x + 4, k.y + r * 0.4); c.lineTo(x - 10, k.y + r * 0.9); c.lineTo(x + 6, k.y + r * 0.95); c.lineTo(x - 8, k.y + r * 1.6); c.stroke();
+      }
+      const puff = (px, py, pr) => { c.beginPath(); c.arc(x + px * r, k.y + py * r, pr * r, 0, 7); c.fill(); };
+      c.fillStyle = k.fl < 0.14 ? '#6a6690' : '#3a3658';
+      puff(-0.8, 0.1, 0.5); puff(0.8, 0.12, 0.48); puff(-0.3, -0.25, 0.6); puff(0.35, -0.2, 0.55);
+      c.fillStyle = k.fl < 0.14 ? '#57537c' : '#262340';
+      c.beginPath(); c.ellipse(x, k.y + r * 0.28, r * 1.25, r * 0.36, 0, 0, 7); c.fill();
+    }
+    drawEagle();
+    // particles
+    for (const p of parts) {
+      const x = p.x - wx + EX;
+      c.globalAlpha = clamp(p.life * 2, 0, 1); c.fillStyle = p.color;
+      if (p.text) { c.font = '400 22px "Bowlby One", "Arial Black", sans-serif'; c.textAlign = 'center'; c.fillText(p.text, x, p.y); }
+      else { c.beginPath(); c.arc(x, p.y, p.r, 0, 7); c.fill(); }
+    }
+    c.globalAlpha = 1;
+  }
+
+  // ---------- HUD + loop ----------
+  let hudKey = '';
+  function hud() {
+    const pct = Math.round(energy), key = caught + '|' + metres() + '|' + pct;
+    if (key === hudKey) return;
+    hudKey = key;
+    $('hudFish').textContent = caught;
+    $('hudDist').textContent = fmtDist(metres());
+    $('meterFill').style.width = pct + '%';
+    $('meter').classList.toggle('low', pct < 25);
+  }
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.033, (now - last) / 1000); last = now;
+    if (dt > 0) update(dt);
+    draw(); hud();
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

@@ -81,6 +81,7 @@
   }
   .pad.dive { color: var(--ink); background: var(--gold); border-color: var(--gold); }
   .pad.on { transform: scale(0.93); filter: brightness(1.25); }
+  .pad.small { height: 40px; border-radius: 999px; font-size: 12px; }
   #stick { position: absolute; left: 0; top: 0; width: 120px; height: 120px; margin: -60px 0 0 -60px; border: 2px solid rgba(243,247,248,0.5); border-radius: 50%; pointer-events: none; }
   #stick i { position: absolute; left: 50%; top: 50%; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; background: rgba(243,247,248,0.7); }
 
@@ -149,10 +150,12 @@
     <span><kbd>Space</kbd>flap</span>
     <span><kbd>Shift</kbd>fold wings, dive</span>
     <span><kbd>C</kbd>brake, land</span>
+    <span><kbd>V</kbd>view</span>
     <span><kbd>I</kbd>invert up/down</span>
   </div>
 
   <div class="pads" id="pads" hidden>
+    <button class="pad small" id="viewBtn" type="button">VIEW</button>
     <button class="pad" id="brakeBtn" type="button">BRAKE</button>
     <button class="pad" id="flapBtn" type="button">FLAP</button>
     <button class="pad dive" id="diveBtn" type="button">DIVE</button>
@@ -167,6 +170,7 @@
         <li><kbd>Space</kbd> flaps. Each press is one wingbeat; hold it to keep beating.</li>
         <li>Hold <kbd>Shift</kbd> to fold your wings and fall. Let go and pull up to swoop out.</li>
         <li>Hold <kbd>C</kbd> to flare and brake. Brake low and slow over land, or at the nest, to perch.</li>
+        <li><kbd>V</kbd> switches between the eagle's own eyes and a view from behind it.</li>
         <li>Circle inside the swirling <b>thermals</b> to climb without flapping.</li>
         <li>Skim the water over a school to snatch a <b>salmon</b>, then carry it to the nest.</li>
         <li>Fly straight through <b>ravens</b> at the nest. Hit a rival eagle at dive speed or it takes your fish.</li>
@@ -474,7 +478,7 @@
   });
 
   // salmon schools
-  const SCHOOLS = 9, fish = [];
+  const SCHOOLS = 24, fish = [];
   const glintG = new THREE.BufferGeometry();
   glintG.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(SCHOOLS * 3), 3));
   const glintM = new THREE.PointsMaterial({ color: 0xffffff, size: 5, sizeAttenuation: false, transparent: true, fog: false });
@@ -496,6 +500,7 @@
 
   // ---------- your own body: wings, talons, the catch ----------
   const wingRig = new THREE.Group(); cam.add(wingRig);
+  let eagle, eWR, eWL, eFish;
   const wingR = new THREE.Group(), wingL = new THREE.Group();
   wingR.rotation.order = wingL.rotation.order = 'YZX';
   wingR.position.set(0.32, -0.95, -1.45); wingL.position.set(-0.32, -0.95, -1.45);
@@ -540,6 +545,27 @@
     }
     wingR.add(wing);
     const left = wing.clone(); left.scale.x = -1; wingL.add(left);
+
+    // the whole bird, seen from behind in third person (faces -z like the camera)
+    eagle = new THREE.Group(); eagle.rotation.order = 'YXZ'; eagle.visible = false; scene.add(eagle);
+    const bird = new THREE.Group(); bird.scale.setScalar(0.85); eagle.add(bird);
+    const lam = c => new THREE.MeshLambertMaterial({ color: c });
+    const part = (geo, m, x, y, z, sx, sy, sz) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.scale.set(sx, sy, sz); bird.add(o); return o; };
+    const ball = new THREE.SphereGeometry(1, 14, 10), brownM = lam(0x3a2615), whiteM = lam(0xf4f1ea), yellowM = lam(0xf2b632);
+    part(ball, brownM, 0, 0, 0.1, 0.4, 0.34, 1.0);                       // body
+    part(ball, brownM, 0, 0.1, -0.35, 0.36, 0.3, 0.5);                   // shoulders
+    part(ball, whiteM, 0, 0.1, -0.85, 0.24, 0.23, 0.36);                 // neck
+    part(ball, whiteM, 0, 0.14, -1.12, 0.21, 0.2, 0.25);                 // head
+    const beak = part(new THREE.ConeGeometry(0.085, 0.3, 7), yellowM, 0, 0.1, -1.42, 1, 1, 1); beak.rotation.x = -Math.PI / 2;
+    const hook = part(new THREE.ConeGeometry(0.05, 0.14, 6), yellowM, 0, 0.03, -1.53, 1, 1, 1); hook.rotation.x = Math.PI;
+    for (const sx of [-1, 1]) part(ball, lam(0x1a1208), sx * 0.15, 0.2, -1.2, 0.035, 0.035, 0.035);
+    const tailM = new THREE.MeshLambertMaterial({ map: tex, color: 0xffffff, emissive: 0x9a9a94, alphaTest: 0.5, side: THREE.DoubleSide });
+    for (let i = 0; i < 7; i++) { const f = new THREE.Mesh(fg, tailM); f.position.set(0, 0.02 - Math.abs(i - 3) * 0.004, 0.85); f.rotation.y = (i - 3) * 0.16; f.scale.set(0.3, 1, 0.95); bird.add(f); }
+    for (const sx of [-1, 1]) { const leg = part(new THREE.CylinderGeometry(0.04, 0.05, 0.3, 6), yellowM, sx * 0.14, -0.3, 0.25, 1, 1, 1); leg.rotation.x = 0.9; }
+    eFish = new THREE.Mesh(fishGeo, fishMat); eFish.scale.setScalar(0.5); eFish.position.set(0, -0.5, 0.2); eFish.visible = false; bird.add(eFish);
+    eWR = new THREE.Group(); eWL = new THREE.Group();
+    eWR.position.set(0.28, 0.14, -0.3); eWL.position.set(-0.28, 0.14, -0.3);
+    eWR.add(wing.clone()); const l2 = wing.clone(); l2.scale.x = -1; eWL.add(l2); bird.add(eWR, eWL);
   }
   wingRig.add(wingR, wingL);
 
@@ -590,14 +616,16 @@
   const P = { pos: new THREE.Vector3(), yaw: 0, pitch: 0, roll: 0, v: 18, tuck: 0 };
   let state = 'ready', mode = 'nest', T = 0, clock = 0;
   let hunger = 100, delivered = 0, drove = 0, stoop = 0, carrying = false, nextRaid = 40;
-  let brakeAmt = 0, hurt = 0, warn = 0, beatP = -1, heave = 0, talonAmt = 0, shake = 0, flash = 0, gload = 0, statusUntil = 0, invert = true, lastMode = 'nest', touchMode = false;
+  let third = false, camSnap = true, lifts = 0, liftT = 0, brakeAmt = 0, hurt = 0, warn = 0, beatP = -1, heave = 0, talonAmt = 0, shake = 0, flash = 0, gload = 0, statusUntil = 0, invert = true, lastMode = 'nest', touchMode = false;
   const keys = {}, pad = { dive: false, flap: false, brake: false }, stick = { x: 0, y: 0 };
-  const dir = new THREE.Vector3();
+  const dir = new THREE.Vector3(), fw = new THREE.Vector3(), want = new THREE.Vector3(), look = new THREE.Vector3(), camPos = new THREE.Vector3();
+  try { third = localStorage.getItem('tt-view') === '3'; } catch (_) {}
+  function setView(on) { third = on; camSnap = true; try { localStorage.setItem('tt-view', on ? '3' : '1'); } catch (_) {} say(on ? 'Following the eagle.' : "Through the eagle's eyes.", 2); }
 
   function say(text, secs) { $('status').textContent = text; $('status').style.opacity = 1; statusUntil = clock + (secs || 3); }
 
   function reset() {
-    P.pos.set(nest.x - 140, nest.y + 330, nest.z + 260); P.yaw = 0.25; P.pitch = -0.08; P.roll = 0; P.v = 19; P.tuck = 0; P.perched = false; brakeAmt = 0;
+    P.pos.set(nest.x - 140, nest.y + 330, nest.z + 260); P.yaw = 0.25; P.pitch = -0.08; P.roll = 0; P.v = 19; P.tuck = 0; P.perched = false; P.afloat = false; lifts = 0; brakeAmt = 0; camSnap = true;
     T = 0; hunger = 100; delivered = 0; drove = 0; stoop = 0; carrying = false; nextRaid = 40;
     foes.forEach(f => scene.remove(f.mesh)); foes = [];
     fish.forEach(placeSchool);
@@ -642,7 +670,7 @@
       s.connect(f); f.connect(g); g.connect(master); s.start(t, Math.random() * 0.4); s.stop(t + dur + 0.05);
     } catch (_) {}
   }
-  const whoosh = () => burst(brown, 0.5, 1000, 180, 0.7, 0.12);        // one wingbeat
+  const whoosh = () => burst(brown, 0.5, 1000, 180, third ? 0.2 : 0.5, 0.12);        // one wingbeat
   const puff = (dur, freq, vol) => burst(white, dur, freq, freq * 0.35, vol * 0.45, 0.015);
   function chirp(f0, f1, dur, type, vol, delay) {
     if (!ac) return;
@@ -680,6 +708,7 @@
       else if (ev.code === 'KeyF') start('free');
       return;
     }
+    if (ev.code === 'KeyV' && !ev.repeat) { setView(!third); return; }
     if (ev.code === 'KeyI' && !ev.repeat) { setInvert(!invert); say(invert ? 'Inverted: down climbs.' : 'Not inverted: up climbs.', 2.5); return; }
     const k = keymap[ev.code]; if (k) { keys[k] = true; ev.preventDefault(); }
   });
@@ -717,6 +746,7 @@
     el.addEventListener('pointerdown', ev => { ev.preventDefault(); try { el.setPointerCapture(ev.pointerId); } catch (_) {} set(true); });
     ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(n => el.addEventListener(n, () => set(false)));
   }
+  $('viewBtn').addEventListener('click', () => setView(!third));
   bindPad($('diveBtn'), 'dive'); bindPad($('flapBtn'), 'flap'); bindPad($('brakeBtn'), 'brake');
 
   function start(m) {
@@ -745,10 +775,29 @@
     if (invert) iy = -iy;
     ix = clamp(ix, -1, 1); iy = clamp(iy, -1, 1);
     if (P.perched) {                                                   // sitting still: look around, flap to leave
-      P.yaw -= ix * 1.3 * dt; P.pitch = clamp(P.pitch + iy * dt, -0.9, 0.9); P.roll *= 0.85; P.v = 0;
-      P.tuck += (1 - P.tuck) * Math.min(1, dt * 5); brakeAmt *= 0.85; heave *= 0.8;
+      P.yaw -= ix * 1.3 * dt; P.pitch = clamp(P.pitch + iy * dt, -0.9, 0.9); P.roll *= 0.85; P.v = 0; brakeAmt *= 0.85;
+      const flapKey = !!(keys.flap || pad.flap);
+      if (P.afloat) {                                                  // on the water: it takes several hard beats in a row to get out
+        P.tuck += (0.3 - P.tuck) * Math.min(1, dt * 5);
+        if (beatP < 0 && flapKey) beatP = 0;
+        let power = 0;
+        if (beatP >= 0) {
+          const was = beatP; beatP += dt / 0.45;
+          if (was < 0.22 && beatP >= 0.22) { lifts++; liftT = 1.5; whoosh(); puff(0.35, 1300, 0.35); shake = 0.25; if (lifts < 4) say('Lifting off the water: ' + lifts + ' of 4 wingbeats.', 2); }
+          if (beatP > 0.22 && beatP < 0.6) power = Math.sin((beatP - 0.22) / 0.38 * Math.PI);
+          if (beatP >= 1) beatP = -1;
+        }
+        heave += (power - heave) * Math.min(1, dt * 14);
+        liftT -= dt;
+        if (liftT <= 0 && lifts > 0) { lifts = 0; say('You settle back onto the water. Keep flapping without a pause.', 3); }
+        P.pos.y += (0.45 + lifts * 0.4 + Math.sin(clock * 1.7) * 0.06 - P.pos.y) * Math.min(1, dt * 6);
+        poseWings();
+        if (lifts >= 4) { P.perched = P.afloat = false; lifts = 0; P.v = 11; P.pitch = 0.3; P.pos.y = 2.4; P.tuck = 0; say('Airborne.', 1.5); }
+        return;
+      }
+      P.tuck += (1 - P.tuck) * Math.min(1, dt * 5); heave *= 0.8;
       const sw = 0.15 - P.tuck * 1.6; wingR.rotation.set(0, sw, 0.1); wingL.rotation.set(0, -sw, -0.1);
-      if (keys.flap || pad.flap) { P.perched = false; P.v = 12; P.pitch = 0.4; P.pos.y += 1; P.tuck = 0; beatP = 0; say('Airborne.', 1.5); }
+      if (flapKey) { P.perched = false; P.v = 12; P.pitch = 0.4; P.pos.y += 1; P.tuck = 0; beatP = 0; say('Airborne.', 1.5); }
       return;
     }
     const tuck = !!(keys.dive || pad.dive), flapIn = !!(keys.flap || pad.flap), braking = !tuck && !!(keys.brake || pad.brake);
@@ -793,11 +842,15 @@
 
     const h = height(P.pos.x, P.pos.z);
     if (h <= 0) {
+      if (!tuck) {                                                     // instinct: level off above the water unless you push the nose down
+        const pushing = iy < -0.4, pred = P.pos.y + P.v * Math.sin(P.pitch) * 0.9;
+        if (pred < 1.8 && P.pitch < 0.05) P.pitch += clamp((1.8 - pred) * 0.35, 0, 2.6) * (pushing ? 0.12 : 1) * dt;
+        if (!pushing && !braking && P.pos.y < 1.3 && P.v > 16) { P.pos.y = 1.3; P.pitch = Math.max(P.pitch, 0); }
+      }
       if (P.pos.y < 0.9) {
-        P.pos.y = 0.9;
-        if (P.pitch < -0.3) { P.v *= 0.4; flash = 0.7; shake = 1; puff(0.6, 900, 0.5); say('Too steep. You hit the water hard.', 2.5); }
-        else if (P.pitch < -0.02) puff(0.15, 1400, 0.12);
-        P.pitch = Math.max(P.pitch, 0.06);
+        if (P.v > 16 && P.pitch < -0.3) { flash = 0.7; shake = 1; puff(0.6, 900, 0.5); settle('You hit the water hard.'); }
+        else if (P.v <= 16) { puff(0.3, 1200, 0.2); settle('You settle onto the water.'); }
+        else { P.pos.y = 0.9; puff(0.15, 1400, 0.12); P.pitch = Math.max(P.pitch, 0.06); }
       }
     } else if (P.pos.y < h + 2.8 && brakeAmt > 0.5 && P.v < 14) {
       perch(h + 1.3, 'Perched.');
@@ -814,7 +867,9 @@
       if (clock > statusUntil) say('Headwind off the icefield. Turning back to the channel.', 2);
     }
 
-    // wings you can see
+    poseWings();
+  }
+  function poseWings() {                                               // wings you can see
     const ease = k => k * k * (3 - 2 * k), rest = 0.1 + Math.sin(clock * 1.3) * 0.02;
     let beat = rest;
     if (beatP >= 0) beat = beatP < 0.22 ? lerp(rest, 0.9, ease(beatP / 0.22)) : beatP < 0.6 ? lerp(0.9, -0.32, ease((beatP - 0.22) / 0.38)) : lerp(-0.32, rest, ease((beatP - 0.6) / 0.4));
@@ -823,8 +878,12 @@
     wingR.rotation.y = sweep; wingL.rotation.y = -sweep;
     wingR.rotation.x = wingL.rotation.x = brakeAmt * 0.55;            // flare: leading edges tip up
   }
+  function settle(msg) {
+    P.perched = P.afloat = true; P.pos.y = 0.45; P.v = 0; P.pitch = 0; beatP = -1; lifts = 0;
+    say(msg + (touchMode ? ' Hold FLAP: four hard wingbeats lift you off.' : ' Hold Space: four hard wingbeats lift you off.'), 5);
+  }
   function perch(y, msg) {
-    P.perched = true; P.pos.y = y; P.v = 0; P.pitch = 0; beatP = -1; whoosh();
+    P.perched = true; P.afloat = false; P.pos.y = y; P.v = 0; P.pitch = 0; beatP = -1; whoosh();
     say(msg + (touchMode ? ' Drag to look around, FLAP takes off.' : ' Arrows look around, Space takes off.'), 5);
   }
 
@@ -835,7 +894,7 @@
 
     if (!carrying && P.pos.y < 6.5) for (const f of fish) {
       if (f.live && Math.hypot(f.pos.x - P.pos.x, f.pos.z - P.pos.z) < 11) {
-        carrying = true; f.live = false; f.wait = 18; f.ring.visible = false; f.jump.visible = false;
+        carrying = true; f.live = false; f.wait = 8; f.ring.visible = false; f.jump.visible = false;
         flash = 0.35; puff(0.4, 1200, 0.4); cry();
         say('Salmon! Carry it home to the nest.', 3.5);
         if (mode === 'nest' && delivered >= 1 && Math.random() < 0.65) spawnRival();
@@ -930,8 +989,26 @@
   function view(dt) {
     shake = Math.max(0, shake - dt * 2.5); flash = Math.max(0, flash - dt * 1.6);
     const rush = clamp((P.v - 30) / 55, 0, 1), jit = rush * 0.012 + shake * 0.05;
-    cam.position.copy(P.pos); cam.position.y += heave * 0.4; dome.position.copy(P.pos); waterMat.uniforms.uTime.value = clock;
-    cam.rotation.set(P.pitch - P.tuck * 0.1 + heave * 0.035 + brakeAmt * 0.09 + (Math.random() - 0.5) * jit, P.yaw + (Math.random() - 0.5) * jit, -P.roll * 0.85 + (Math.random() - 0.5) * jit * 0.6);
+    waterMat.uniforms.uTime.value = clock;
+    const tp = third && state !== 'ready';
+    eagle.visible = tp; wingRig.visible = !tp; talons.visible = !tp;
+    if (tp) {                                                          // follow from behind and a little above, with some lag
+      const cp = Math.cos(P.pitch);
+      fw.set(-Math.sin(P.yaw) * cp, Math.sin(P.pitch), -Math.cos(P.yaw) * cp);
+      eagle.position.copy(P.pos); eagle.position.y += heave * 0.3 - 0.2;
+      eagle.rotation.set(P.perched ? 0 : P.pitch, P.yaw, P.perched ? 0 : -P.roll);
+      eWR.rotation.copy(wingR.rotation); eWL.rotation.copy(wingL.rotation); eFish.visible = carrying;
+      want.copy(P.pos).addScaledVector(fw, -(7.5 + clamp((P.v - 18) / 60, 0, 1) * 3)); want.y += 3.6;
+      if (camSnap) { camPos.copy(want); camSnap = false; } else camPos.lerp(want, 1 - Math.exp(-dt * 7));
+      camPos.y = Math.max(camPos.y, Math.max(0, height(camPos.x, camPos.z)) + 0.8);
+      cam.position.copy(camPos);
+      look.copy(P.pos).addScaledVector(fw, 9); look.y += 0.4; cam.lookAt(look);
+      cam.rotateZ(-P.roll * 0.3 + (Math.random() - 0.5) * jit); cam.rotateX((Math.random() - 0.5) * jit);
+    } else {
+      cam.position.copy(P.pos); cam.position.y += heave * 0.4;
+      cam.rotation.set(P.pitch - P.tuck * 0.1 + heave * 0.035 + brakeAmt * 0.09 + (Math.random() - 0.5) * jit, P.yaw + (Math.random() - 0.5) * jit, -P.roll * 0.85 + (Math.random() - 0.5) * jit * 0.6);
+    }
+    dome.position.copy(cam.position);
     const fov = 72 + clamp((P.v - 16) / 70, 0, 1) * 44 - P.tuck * 3 + heave * 3;
     cam.fov += (fov - cam.fov) * Math.min(1, dt * 4); cam.updateProjectionMatrix();
 
@@ -950,7 +1027,7 @@
 
     // what is coming: your shadow on the ground ahead, and a warning when the flight path meets terrain
     const live = state === 'play' && !P.perched, agl = P.pos.y - Math.max(0, height(P.pos.x, P.pos.z));
-    const sx = P.pos.x - Math.sin(P.yaw) * agl * 2.5, sz = P.pos.z - Math.cos(P.yaw) * agl * 2.5;
+    const sk = tp ? 0.25 : 2.5, sx = P.pos.x - Math.sin(P.yaw) * agl * sk, sz = P.pos.z - Math.cos(P.yaw) * agl * sk;
     shadow.visible = live; shadow.position.set(sx, Math.max(0, height(sx, sz)) + 1, sz); shadow.rotation.y = P.yaw;
     shadow.material.opacity = 0.5 * clamp(1 - agl / 220, 0, 1);
     let danger = 0;
@@ -962,7 +1039,7 @@
     $('warn').style.opacity = Math.max(warn, hurt).toFixed(2); $('warnText').hidden = warn < 0.35;
     if (ac && windGain) {
       const k = clamp((P.v - 8) / 80, 0, 1), now = ac.currentTime, on = state === 'play';
-      windGain.gain.setTargetAtTime(on ? 0.07 + Math.pow(k, 1.5) * 0.6 : 0, now, 0.12);
+      windGain.gain.setTargetAtTime(on ? (0.07 + Math.pow(k, 1.5) * 0.6) * (third ? 0.4 : 1) : 0, now, 0.12);
       windLP.frequency.setTargetAtTime(240 + P.v * 15, now, 0.12);
       waterGain.gain.setTargetAtTime(on ? 0.3 * clamp(1 - P.pos.y / 180, 0, 1) : 0, now, 0.4);
       nextSong -= dt;

@@ -4,7 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Talon &amp; Thermal</title>
-<style>body{margin:0}[hidden]{display:none!important}</style>
+<meta name="description" content="Fly as a bald eagle over a fjord near Juneau: drop off a cliff, fall through clouds, hunt salmon.">
+<meta name="theme-color" content="#0d1f29">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Talon">
+<style>html,body{height:100%}body{margin:0;background:#0d1f29;overscroll-behavior:none}[hidden]{display:none!important}:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);box-sizing:border-box;height:100%}</style>
 </head>
 <body>
 <title>Talon & Thermal</title>
@@ -77,7 +86,8 @@
   #mkNest { color: var(--gold); } #mkFish { color: var(--paper); } #mkFoe { color: var(--danger); }
 
   .pads {
-    position: absolute; right: 0; bottom: 0; display: flex; flex-direction: column; gap: 12px;
+    position: absolute; right: 0; bottom: 0; display: grid; gap: 12px; align-items: end; justify-items: center;
+    grid-template-columns: 76px 76px; grid-template-areas: "cliff view" "brake flap" ". dive";
     padding-bottom: calc(22px + env(safe-area-inset-bottom, 0px));
     padding-right: max(16px, env(safe-area-inset-right, 0px));
   }
@@ -89,7 +99,9 @@
   }
   .pad.dive { color: var(--ink); background: var(--gold); border-color: var(--gold); }
   .pad.on { transform: scale(0.93); filter: brightness(1.25); }
-  .pad.small { height: 40px; border-radius: 999px; font-size: 12px; }
+  .pad.small { height: 38px; border-radius: 999px; font-size: 12px; }
+  #cliffBtn { grid-area: cliff; } #viewBtn { grid-area: view; } #brakeBtn { grid-area: brake; } #flapBtn { grid-area: flap; } #diveBtn { grid-area: dive; }
+  .pad { -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
   #stick { position: absolute; left: 0; top: 0; width: 120px; height: 120px; margin: -60px 0 0 -60px; border: 2px solid rgba(243,247,248,0.5); border-radius: 50%; pointer-events: none; }
   #stick i { position: absolute; left: 50%; top: 50%; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; background: rgba(243,247,248,0.7); }
 
@@ -130,6 +142,17 @@
   kbd { font: 700 12px var(--body); padding: 2px 7px; margin-right: 4px; border: 2px solid var(--paper); border-radius: 6px; background: rgba(13,31,41,0.55); }
   .card kbd { border-color: var(--gold); color: var(--gold); }
   .hint { margin: 0; font-size: 13px; opacity: 0.85; }
+  @media (max-height: 460px) {
+    .pads { grid-template-columns: 66px 66px; gap: 10px; padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
+    .pad { width: 66px; height: 66px; font-size: 13px; }
+    .pad.small { height: 32px; }
+    .card { width: min(100%, 640px); padding: 16px 20px 14px; gap: 9px; }
+    h1 { font-size: 24px; }
+    .place { display: none; }
+    .card ul { font-size: 13px; gap: 2px; line-height: 1.3; }
+    .card-wrap { place-items: start center; }
+    .btn { padding: 10px 16px; font-size: 15px; }
+  }
 </style>
 
 <div class="stage" id="stage">
@@ -166,6 +189,7 @@
   </div>
 
   <div class="pads" id="pads" hidden>
+    <button class="pad small" id="cliffBtn" type="button" hidden>CLIFF</button>
     <button class="pad small" id="viewBtn" type="button">VIEW</button>
     <button class="pad" id="brakeBtn" type="button">BRAKE</button>
     <button class="pad" id="flapBtn" type="button">FLAP</button>
@@ -176,7 +200,7 @@
     <div class="card">
       <h1>Talon &amp; Thermal</h1>
       <p class="place">Gastineau Channel, near Juneau, Alaska</p>
-      <ul>
+      <ul id="howKeys">
         <li>Steer with the <b>arrow keys</b> (or WASD). On a phone, drag anywhere.</li>
         <li><kbd>Space</kbd> flaps. Each press is one wingbeat; hold it to keep beating.</li>
         <li>Hold <kbd>Shift</kbd> to fold your wings and fall. Let go and pull up to swoop out, but start early: at full speed you need a long arc.</li>
@@ -187,8 +211,15 @@
         <li>Skim the water over a school to snatch a <b>salmon</b>, then carry it to the nest.</li>
         <li>Fly straight through <b>ravens</b> at the nest. Hit a rival eagle at dive speed or it takes your fish.</li>
       </ul>
+      <ul id="howTouch" hidden>
+        <li><b>Drag</b> anywhere with your left thumb to steer.</li>
+        <li>Hold <b>DIVE</b> to fold your wings and fall. Let go and pull out early: at full speed you need a long arc.</li>
+        <li><b>FLAP</b> beats your wings. <b>BRAKE</b> flares them to slow down, land or perch. <b>VIEW</b> switches to behind the eagle.</li>
+        <li><b>Just fly</b> starts on the edge of a 900 m cliff. <b>CLIFF</b> takes you back there.</li>
+        <li>Snatch <b>salmon</b> off the water and carry them to the nest. Fly through <b>ravens</b> to drive them off.</li>
+      </ul>
       <label class="opt" for="invert"><input type="checkbox" id="invert" checked> Inverted pitch: down climbs, up dives</label>
-      <p class="hint">No mouse needed: <kbd>Enter</kbd> starts, <kbd>F</kbd> starts free flight.</p>
+      <p class="hint" id="keysHint">No mouse needed: <kbd>Enter</kbd> starts, <kbd>F</kbd> starts free flight.</p>
       <div class="row">
         <button class="btn" id="nestBtn" type="button">Raise the eaglets</button>
         <button class="btn ghost" id="freeBtn" type="button">Just fly</button>
@@ -206,7 +237,7 @@
         <div><strong id="endStoop">0</strong><span>Fastest dive, km/h</span></div>
         <div><strong id="endTime">0:00</strong><span>Time aloft</span></div>
       </div>
-      <p class="hint"><kbd>Enter</kbd> flies again.</p>
+      <p class="hint" id="againHint"><kbd>Enter</kbd> flies again.</p>
       <div class="row">
         <button class="btn" id="againBtn" type="button">Fly again</button>
         <button class="btn ghost" id="againFreeBtn" type="button">Just fly</button>
@@ -215,7 +246,7 @@
   </div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="three.min.js"></script>
 <script>
 (() => {
   const $ = id => document.getElementById(id);
@@ -277,7 +308,7 @@
   function resize() {
     const r = $('stage').getBoundingClientRect();
     W = Math.max(1, r.width); H = Math.max(1, r.height);
-    renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    renderer.setPixelRatio(Math.min(touchMode ? 1.5 : 2, window.devicePixelRatio || 1));   // phones: fewer pixels, steadier frames
     renderer.setSize(W, H, false);
     cam.aspect = W / H; cam.updateProjectionMatrix();
     wingRig.scale.x = clamp(cam.aspect / 1.6, 0.36, 1);
@@ -770,11 +801,21 @@
   const resume = () => { if (paused) { paused = false; $('pauseWrap').hidden = true; if (master) master.gain.value = 0.9; } };
   addEventListener('focus', resume);
   addEventListener('pointerdown', () => { try { window.focus(); } catch (_) {} resume(); }, true);
-  $('fullBtn').addEventListener('click', () => { try { const r = $('stage').requestFullscreen && $('stage').requestFullscreen(); if (r && r.catch) r.catch(() => {}); } catch (_) {} });
+  $('fullBtn').addEventListener('click', () => {
+    try {
+      const r = $('stage').requestFullscreen && $('stage').requestFullscreen();
+      if (r && r.then) r.then(() => { try { const o = screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape'); if (o && o.catch) o.catch(() => {}); } catch (_) {} }).catch(() => {});
+    } catch (_) {}
+  });
+  if (!(document.fullscreenEnabled || document.webkitFullscreenEnabled)) $('fullBtn').hidden = true;   // iPhones can't go fullscreen from a page
+  $('cliffBtn').addEventListener('click', () => { if (state === 'play' && mode === 'free') toSummit(); });
+  function applyTouchUI() {
+    $('howKeys').hidden = touchMode; $('howTouch').hidden = !touchMode; $('keysHint').hidden = touchMode; $('againHint').hidden = touchMode;
+  }
   const stage = $('stage'), stickEl = $('stick');
   let steerId = null, sx0 = 0, sy0 = 0;
   stage.addEventListener('pointerdown', ev => {
-    if (ev.pointerType === 'touch' && !touchMode) { touchMode = true; if (state === 'play') { $('pads').hidden = false; $('legend').hidden = true; } }
+    if (ev.pointerType === 'touch' && !touchMode) { touchMode = true; applyTouchUI(); if (state === 'play') { $('pads').hidden = false; $('legend').hidden = true; } }
     if (state !== 'play' || ev.target.closest('button')) return;
     ev.preventDefault();
     if (steerId !== null) return;
@@ -803,7 +844,7 @@
     mode = lastMode = m; audioInit(); reset(); state = 'play'; beatP = -1;
     if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
     $('startWrap').hidden = true; $('overWrap').hidden = true; $('hud').hidden = false; $('pads').hidden = !touchMode; $('legend').hidden = touchMode;
-    $('nestStat').hidden = $('meter').hidden = mode !== 'nest'; $('legendR').hidden = mode !== 'free';
+    $('nestStat').hidden = $('meter').hidden = mode !== 'nest'; $('legendR').hidden = mode !== 'free'; $('cliffBtn').hidden = mode !== 'free';
     if (mode === 'free') { toSummit(); return; }
     say(touchMode ? 'Drag to steer. FLAP beats your wings, BRAKE slows you to land.' : mode === 'nest' ? 'The eaglets are hungry. Find a salmon in the channel.' : 'The channel is yours.', 4);
   }
@@ -1157,7 +1198,7 @@
     // grey-out under hard g, edge blur and a quiet screen when you fall fast, whiteout inside a cloud
     $('vignette').style.opacity = clamp(rush * 0.4 + clamp((gload - 2.5) / 4, 0, 0.7), 0, 1).toFixed(2);
     $('flash').style.opacity = flash.toFixed(2);
-    const eb = state === 'play' ? clamp((P.v - 45) / 40, 0, 1) * 0.9 : 0;
+    const eb = state === 'play' && !touchMode ? clamp((P.v - 45) / 40, 0, 1) * 0.9 : 0;   // edge blur is too costly on phones
     if ((eb > 0.02) !== blurOn) { blurOn = eb > 0.02; $('edgeblur').hidden = !blurOn; }
     if (blurOn) $('edgeblur').style.opacity = eb.toFixed(2);
     if ((inCloud > 0.01) !== cloudOn) { cloudOn = inCloud > 0.01; $('cloud').hidden = !cloudOn; }
@@ -1227,7 +1268,7 @@
   }
 
   // ---------- loop ----------
-  touchMode = !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
+  touchMode = !!(window.matchMedia && matchMedia('(pointer: coarse)').matches); applyTouchUI();
   stage.tabIndex = -1; try { window.focus(); stage.focus({ preventScroll: true }); } catch (_) {}
   addEventListener('resize', resize); resize();
   let last = performance.now();
@@ -1244,6 +1285,11 @@
   }
   requestAnimationFrame(frame);
 })();
+</script>
+<script>
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => {}); });
+}
 </script>
 </body>
 </html>

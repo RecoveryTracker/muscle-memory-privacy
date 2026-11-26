@@ -35,4 +35,6 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 </html>
 TAIL
 } > index.html
-echo "built index.html"
+v=$(cat game.html three.min.js manifest.webmanifest | sha1sum | cut -c1-10)   # a new cache name each build, so phones pick up the update
+sed -i "s/^const VERSION = .*/const VERSION = 'talon-$v';/" sw.js
+echo "built index.html (offline cache talon-$v)"

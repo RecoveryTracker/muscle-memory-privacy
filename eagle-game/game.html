@@ -69,7 +69,7 @@
 
   .pads {
     position: absolute; right: 0; bottom: 0; display: grid; gap: 12px; align-items: end; justify-items: center;
-    grid-template-columns: 76px 76px; grid-template-areas: "cliff view" "brake flap" ". dive";
+    grid-template-columns: 76px 76px; grid-template-areas: "cliff view" "brake flap" "level dive";
     padding-bottom: calc(22px + env(safe-area-inset-bottom, 0px));
     padding-right: max(16px, env(safe-area-inset-right, 0px));
   }
@@ -82,6 +82,7 @@
   .pad.dive { color: var(--ink); background: var(--gold); border-color: var(--gold); }
   .pad.on { transform: scale(0.93); filter: brightness(1.25); }
   .pad.small { height: 38px; border-radius: 999px; font-size: 12px; }
+  #levelBtn { grid-area: level; }
   #cliffBtn { grid-area: cliff; } #viewBtn { grid-area: view; } #brakeBtn { grid-area: brake; } #flapBtn { grid-area: flap; } #diveBtn { grid-area: dive; }
   .pad { -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
   #stick { position: absolute; left: 0; top: 0; width: 120px; height: 120px; margin: -60px 0 0 -60px; border: 2px solid rgba(243,247,248,0.5); border-radius: 50%; pointer-events: none; }
@@ -124,7 +125,13 @@
   kbd { font: 700 12px var(--body); padding: 2px 7px; margin-right: 4px; border: 2px solid var(--paper); border-radius: 6px; background: rgba(13,31,41,0.55); }
   .card kbd { border-color: var(--gold); color: var(--gold); }
   .hint { margin: 0; font-size: 13px; opacity: 0.85; }
+  .stage.tilt .pads { grid-template-areas: "cliff view" "level dive"; }   /* tilt steering frees the left thumb for FLAP and BRAKE */
+  .stage.tilt #flapBtn, .stage.tilt #brakeBtn { position: fixed; left: max(16px, env(safe-area-inset-left, 0px)); }
+  .stage.tilt #flapBtn { bottom: calc(22px + env(safe-area-inset-bottom, 0px)); }
+  .stage.tilt #brakeBtn { bottom: calc(110px + env(safe-area-inset-bottom, 0px)); }
   @media (max-height: 460px) {
+    .stage.tilt #flapBtn { bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
+    .stage.tilt #brakeBtn { bottom: calc(90px + env(safe-area-inset-bottom, 0px)); }
     .pads { grid-template-columns: 66px 66px; gap: 10px; padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
     .pad { width: 66px; height: 66px; font-size: 13px; }
     .pad.small { height: 32px; }
@@ -173,6 +180,7 @@
   <div class="pads" id="pads" hidden>
     <button class="pad small" id="cliffBtn" type="button" hidden>CLIFF</button>
     <button class="pad small" id="viewBtn" type="button">VIEW</button>
+    <button class="pad small" id="levelBtn" type="button" hidden>LEVEL</button>
     <button class="pad" id="brakeBtn" type="button">BRAKE</button>
     <button class="pad" id="flapBtn" type="button">FLAP</button>
     <button class="pad dive" id="diveBtn" type="button">DIVE</button>
@@ -194,12 +202,13 @@
         <li>Fly straight through <b>ravens</b> at the nest. Hit a rival eagle at dive speed or it takes your fish.</li>
       </ul>
       <ul id="howTouch" hidden>
-        <li><b>Drag</b> anywhere with your left thumb to steer.</li>
+        <li><b>Tilt</b> the phone to steer (or drag anywhere). Hold it the way you like and tap <b>LEVEL</b> to set that as flying straight.</li>
         <li>Hold <b>DIVE</b> to fold your wings and fall. Let go and pull out early: at full speed you need a long arc.</li>
         <li><b>FLAP</b> beats your wings. <b>BRAKE</b> flares them to slow down, land or perch. <b>VIEW</b> switches to behind the eagle.</li>
         <li><b>Just fly</b> starts on the edge of a 900 m cliff. <b>CLIFF</b> takes you back there.</li>
         <li>Snatch <b>salmon</b> off the water and carry them to the nest. Fly through <b>ravens</b> to drive them off.</li>
       </ul>
+      <label class="opt" for="tiltOpt" id="tiltRow" hidden><input type="checkbox" id="tiltOpt" checked> Tilt the phone to steer: tip forward to dive, turn it like a wheel</label>
       <label class="opt" for="invert"><input type="checkbox" id="invert" checked> Inverted pitch: down climbs, up dives</label>
       <p class="hint" id="keysHint">No mouse needed: <kbd>Enter</kbd> starts, <kbd>F</kbd> starts free flight.</p>
       <div class="row">
@@ -472,6 +481,22 @@
     snag.position.set(summit.x - 5, summit.y + 4, summit.z - 4); snag.rotation.z = 0.12; scene.add(snag);
     const branch = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.16, 3.4, 5), wood);
     branch.position.copy(snag.position); branch.position.y += 2.2; branch.rotation.z = 1.0; scene.add(branch);
+  }
+  // boulders and ledges stuck to the cliff face: close detail that flashes up past you as you fall
+  {
+    const N = 700, rocks = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(1, 0), new THREE.MeshLambertMaterial(), N);
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), p = new THREE.Vector3(), cc = new THREE.Color(), e = new THREE.Euler();
+    let n = 0;
+    for (let k = 0; k < N * 3 && n < N; k++) {
+      const z = CLIFF.z + rnd(-235, 235), y = rnd(25, CLIFF.top - 12), cx = chanX(z);
+      let lo = CLIFF.face, hi = CLIFF.face + 32;                       // where the face passes this height
+      for (let it = 0; it < 18; it++) { const mid = (lo + hi) / 2; if (gridH(cx - mid, z) < y) lo = mid; else hi = mid; }
+      const r = rnd(1.4, 4.5) * (Math.random() < 0.12 ? 2.2 : 1);
+      p.set(cx - lo + r * 0.35, y, z); e.set(rnd(0, 3), rnd(0, 3), rnd(0, 3)); q.setFromEuler(e);
+      sc.set(r * rnd(0.8, 1.6), r * rnd(0.45, 0.9), r * rnd(0.8, 1.6)); m.compose(p, q, sc); rocks.setMatrixAt(n, m);
+      cc.setHSL(0.07, 0.06, rnd(0.3, 0.52)); rocks.setColorAt(n, cc); n++;
+    }
+    rocks.count = n; scene.add(rocks);
   }
   const thermSpots = [-1700, -850, 110, 950, 1750].map((z, i) => ({ z, x: chanX(z) + (i % 2 ? -1 : 1) * 470 }));
   const CB = Math.round(Math.max(1250, summit.y + 160));                  // cloud base: thermals top out here
@@ -791,7 +816,58 @@
   });
   if (!(document.fullscreenEnabled || document.webkitFullscreenEnabled)) $('fullBtn').hidden = true;   // iPhones can't go fullscreen from a page
   $('cliffBtn').addEventListener('click', () => { if (state === 'play' && mode === 'free') toSummit(); });
+  // ---------- tilt steering (phones) ----------
+  // The phone reports its angles; from them we work out which way is up in the screen's own frame, so it works
+  // in either landscape direction and in portrait. Pitch: how far the top edge is tipped away from you.
+  // Roll: how far it is turned like a steering wheel. LEVEL stores your natural hold as "fly straight".
+  const tilt = { want: true, on: false, live: false, ready: false, listening: false, ix: 0, iy: 0, tuck: false, p: 0, r: 0, p0: 0, r0: 0, last: 0 };
+  try { if (localStorage.getItem('tt-tilt') === '0') tilt.want = false; } catch (_) {}
+  $('tiltOpt').checked = tilt.want;
+  $('tiltOpt').addEventListener('change', () => { tilt.want = $('tiltOpt').checked; try { localStorage.setItem('tt-tilt', tilt.want ? '1' : '0'); } catch (_) {} });
+  const screenAngle = () => { const a = (screen.orientation && typeof screen.orientation.angle === 'number') ? screen.orientation.angle : (window.orientation || 0); return ((a % 360) + 360) % 360; };
+  function onOrient(e) {
+    if (e.beta == null || e.gamma == null) return;
+    const b = e.beta * Math.PI / 180, g = e.gamma * Math.PI / 180;
+    const ux = -Math.cos(b) * Math.sin(g), uy = Math.sin(b), uz = Math.cos(b) * Math.cos(g);   // up, in the phone's frame
+    const a = screenAngle();
+    const sx = a === 90 ? -uy : a === 180 ? -ux : a === 270 ? uy : ux;
+    const sy = a === 90 ? ux : a === 180 ? -uy : a === 270 ? -ux : uy;
+    const p = Math.atan2(uz, sy), r = Math.atan2(-sx, Math.max(0.35, sy));
+    if (!tilt.live) { tilt.p = p; tilt.r = r; } else { tilt.p += (p - tilt.p) * 0.35; tilt.r += (r - tilt.r) * 0.35; }
+    tilt.live = true; tilt.last = performance.now();
+  }
+  function level(quiet) {
+    if (!tilt.live) return;
+    tilt.p0 = tilt.p; tilt.r0 = tilt.r; tilt.ready = true;
+    if (!quiet) say('Level set: hold the phone like this to fly straight.', 2.5);
+  }
+  function tiltInput() {
+    if (!tilt.on || !tilt.ready || performance.now() - tilt.last > 1000) { tilt.ix = tilt.iy = 0; tilt.tuck = false; return; }
+    const dz = (v, d) => Math.sign(v) * Math.max(0, Math.abs(v) - d);
+    const dp = tilt.p - tilt.p0, dr = Math.atan2(Math.sin(tilt.r - tilt.r0), Math.cos(tilt.r - tilt.r0));
+    tilt.ix = clamp(dz(dr, 0.05) / 0.4, -1, 1);
+    tilt.iy = clamp(-dz(dp, 0.05) / 0.35, -1, 1);
+    tilt.tuck = dp > 0.55;                                              // tip it well forward: fold your wings and fall
+  }
+  function enableTilt() {
+    const go = () => {
+      if (!tilt.listening) { addEventListener('deviceorientation', onOrient); tilt.listening = true; }
+      tilt.on = true; tilt.ready = false;
+      setTimeout(() => {
+        if (tilt.live) { level(true); stage.classList.add('tilt'); $('levelBtn').hidden = false; say('Tilt to steer: tip forward to dive, turn like a wheel. Tap LEVEL to reset.', 4); }
+        else { tilt.on = false; say('Tilt steering is not available here, so drag to steer.', 4); }
+      }, 800);
+    };
+    try {
+      if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function') {
+        DeviceOrientationEvent.requestPermission().then(r => { if (r === 'granted') go(); else say('Motion access was turned down, so drag to steer.', 4); }).catch(() => say('Tilt needs motion access. Drag to steer instead.', 4));
+      } else if (window.DeviceOrientationEvent) go();
+    } catch (_) {}
+  }
+  $('levelBtn').addEventListener('click', () => level(false));
+
   function applyTouchUI() {
+    $('tiltRow').hidden = !(touchMode && window.DeviceOrientationEvent);
     $('howKeys').hidden = touchMode; $('howTouch').hidden = !touchMode; $('keysHint').hidden = touchMode; $('againHint').hidden = touchMode;
   }
   const stage = $('stage'), stickEl = $('stick');
@@ -824,6 +900,7 @@
   function start(m) {
     if (state === 'play') return;
     mode = lastMode = m; audioInit(); reset(); state = 'play'; beatP = -1;
+    if (touchMode && tilt.want && !tilt.on) enableTilt();
     if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
     $('startWrap').hidden = true; $('overWrap').hidden = true; $('hud').hidden = false; $('pads').hidden = !touchMode; $('legend').hidden = touchMode;
     $('nestStat').hidden = $('meter').hidden = mode !== 'nest'; $('legendR').hidden = mode !== 'free'; $('cliffBtn').hidden = mode !== 'free';
@@ -860,7 +937,8 @@
     let ix = (keys.right ? 1 : 0) - (keys.left ? 1 : 0) + stick.x;
     let iy = (keys.up ? 1 : 0) - (keys.down ? 1 : 0) - stick.y;
     if (invert) iy = -iy;
-    ix = clamp(ix, -1, 1); iy = clamp(iy, -1, 1);
+    tiltInput();
+    ix = clamp(ix + tilt.ix, -1, 1); iy = clamp(iy + tilt.iy, -1, 1);
     if (P.perched) {                                                   // sitting still: look around, flap or drop to leave
       P.yaw -= ix * 1.3 * dt; P.pitch = clamp(P.pitch + iy * dt, -0.9, 0.9); P.roll *= 0.85; P.v = 0; P.vel.set(0, 0, 0); brakeAmt *= 0.85; gload = 1;
       const flapKey = !!(keys.flap || pad.flap);
@@ -884,14 +962,14 @@
       }
       P.tuck += (1 - P.tuck) * Math.min(1, dt * 5); heave *= 0.8;
       const sw = 0.15 - P.tuck * 1.6; wingR.rotation.set(0, sw, 0.1); wingL.rotation.set(0, -sw, -0.1);
-      if (keys.dive || pad.dive) {                                     // step off head first
+      if (keys.dive || pad.dive || tilt.tuck) {                        // step off head first
         P.perched = false; P.pos.y += 0.6; P.alpha = 0; launch(8, -0.12); P.tuck = 0.6; beatP = -1; grace = 0.6; $('status').style.opacity = 0;
         return;
       }
       if (flapKey) { P.perched = false; P.pos.y += 1; P.tuck = 0; beatP = 0; P.alpha = 0.2; launch(13, 0.3); grace = 0.8; say('Airborne.', 1.5); }
       return;
     }
-    const tuck = !!(keys.dive || pad.dive), flapIn = !!(keys.flap || pad.flap), braking = !tuck && !!(keys.brake || pad.brake);
+    const tuck = !!(keys.dive || pad.dive || tilt.tuck), flapIn = !!(keys.flap || pad.flap), braking = !tuck && !!(keys.brake || pad.brake);
     const pushing = iy < -0.4;
     brakeAmt += ((braking ? 1 : 0) - brakeAmt) * Math.min(1, dt * 5);
     P.tuck += ((tuck ? 1 : 0) - P.tuck) * Math.min(1, dt * 7);
@@ -917,7 +995,8 @@
     // pitch input sets how hard you pull, in g. Hands off, the bird holds its path, trades spare speed for a gentle climb
     // and dips a little when slow; the wings then find the angle of attack that load needs, up to the stall
     const pathUp = P.vel.y / s, cosPath = Math.sqrt(Math.max(0, 1 - pathUp * pathUp));
-    let nCmd = clamp(cosPath + 0.5 * (s - 20) / 20, -0.3, 2) / Math.max(Math.cos(P.roll), 0.4) + (iy > 0 ? iy * 6 : iy * 1.6);
+    const n0 = clamp(cosPath + (iy < 0 ? 0 : 0.5 * (s - 20) / 20), -0.3, 2) / Math.max(Math.cos(P.roll), 0.4);
+    let nCmd = iy > 0 ? n0 + iy * 6 : lerp(n0, -1.5, -iy);              // full down always pushes you over into a dive
     if (!tuck && !braking && height(P.pos.x, P.pos.z) <= 0) {           // instinct over water: pull out unless you mean to go in
       const pred = P.pos.y + P.vel.y * 0.9;
       if (pred < 2.5) nCmd += clamp((2.5 - pred) * 0.4, 0, 3) * (pushing ? 0.1 : 1);
@@ -1117,7 +1196,8 @@
 
   // ---------- camera and the feel of speed and falling ----------
   const up0 = new THREE.Vector3(0, 1, 0), hdV = new THREE.Vector3();
-  let stomach = 0, hush = 0, blurOn = false, cloudOn = false, fallingUI = false;
+  let stomach = 0, hush = 0, blurOn = false, cloudOn = false, fallingUI = false, headPitch = 0, fallAmt = 0;
+  const qInv = new THREE.Quaternion(), vCam = new THREE.Vector3(), vDir = new THREE.Vector3(), rv = new THREE.Vector3(), camDir = new THREE.Vector3(), headDir = new THREE.Vector3();
   function cloudDensity(p) {
     let m = 0;
     for (const c of cloudVols) {
@@ -1135,13 +1215,22 @@
     const bz = (Math.sin(clock * 9.7 + 2.2) + 0.5 * Math.sin(clock * 31.9)) * buf;
     const flying = state === 'play' && !P.perched;
     stomach += ((flying ? clamp((1 - gload) * 0.35, -0.9, 0.4) : 0) - stomach) * Math.min(1, dt * 5);   // float up weightless, sink under load
+    // Falling: the body points down its path, but the head keeps looking out ahead, so the cliff, the far
+    // mountains and the horizon rush UP past you instead of the ground slowly growing in the middle of the view
+    const agl0 = P.pos.y - Math.max(0, height(P.pos.x, P.pos.z));
+    const fallT = flying ? clamp((0.9 - gload) / 0.6, 0, 1) * clamp((-dir.y - 0.3) / 0.3, 0, 1) : 0;
+    fallAmt += (fallT - fallAmt) * Math.min(1, dt * 2.5);
+    const lookDown = -0.5 - 0.45 * clamp(1 - agl0 / 450, 0, 1);         // look further down as the ground comes up
+    const hpT = lerp(P.pitch, Math.max(P.pitch, lookDown), fallAmt);
+    headPitch += (hpT - headPitch) * Math.min(1, dt * lerp(30, 3.5, fallAmt));
     waterMat.uniforms.uTime.value = clock;
     const tp = third && state !== 'ready';
     eagle.visible = tp; wingRig.visible = !tp; talons.visible = !tp;
     if (tp) {                                                          // trail the flight path from behind and a little above
       const cp = Math.cos(P.pitch);
       fw.set(-Math.sin(P.yaw) * cp, Math.sin(P.pitch), -Math.cos(P.yaw) * cp);
-      const path = (P.perched || P.v < 3) ? fw : dir;
+      headDir.set(-Math.sin(P.yaw) * Math.cos(headPitch), Math.sin(headPitch), -Math.cos(P.yaw) * Math.cos(headPitch));
+      const path = camDir.copy((P.perched || P.v < 3) ? fw : dir).lerp(headDir, fallAmt).normalize();   // falling: watch the eagle drop from above and behind
       eagle.position.copy(P.pos); eagle.position.y += heave * 0.3 - 0.2;
       eagle.rotation.set(P.perched ? 0 : P.pitch, P.yaw, P.perched ? 0 : -P.roll);
       eWR.rotation.copy(wingR.rotation); eWL.rotation.copy(wingL.rotation); eFish.visible = carrying;
@@ -1160,7 +1249,7 @@
     } else {
       cam.up.copy(up0);
       cam.position.copy(P.pos); cam.position.y += heave * 0.4 + stomach;
-      cam.rotation.set(clamp(P.pitch - P.tuck * 0.1 + heave * 0.035 + brakeAmt * 0.09 - stomach * 0.06 + bx, -1.56, 1.4), P.yaw + by, -P.roll * 0.85 + bz * 0.6);
+      cam.rotation.set(clamp(headPitch - P.tuck * 0.1 * (1 - fallAmt) + heave * 0.035 + brakeAmt * 0.09 - stomach * 0.06 + bx, -1.56, 1.4), P.yaw + by, -P.roll * 0.85 + bz * 0.6);
     }
     dome.position.copy(cam.position);
     const fov = 72 + clamp((P.v - 16) / 70, 0, 1) * (tp ? 18 : 40) - P.tuck * 3 + heave * 3 - clamp((gload - 2) / 4, 0, 1) * 6;
@@ -1168,10 +1257,21 @@
 
     talons.position.set(0, lerp(-1.5, -0.62, P.perched ? 0 : Math.max(talonAmt, brakeAmt)), -0.95); held.visible = carrying;
 
-    const len = P.v * 0.07, adv = P.v * dt;
+    qInv.copy(cam.quaternion).invert(); vCam.copy(P.vel).applyQuaternion(qInv);   // your motion as the camera sees it
+    const sp = state === 'play' ? vCam.length() : 0;
+    if (sp > 0.5) vDir.copy(vCam).divideScalar(sp); else vDir.set(0, 0, -1);
+    const len = sp * 0.07;
     streaks.forEach((s, i) => {
-      s.z += adv; if (s.z > 2) { s.z = -70; reseed(s); }
-      const o = i * 6; streakPos[o] = streakPos[o + 3] = s.x; streakPos[o + 1] = streakPos[o + 4] = s.y; streakPos[o + 2] = s.z; streakPos[o + 5] = s.z - len;
+      s.x -= vCam.x * dt; s.y -= vCam.y * dt; s.z -= vCam.z * dt;
+      const along = s.x * vDir.x + s.y * vDir.y + s.z * vDir.z;
+      if (along < -3 || along > 75) {                                   // passed you: bring it back in ahead of your motion
+        const a2 = rnd(15, 72); rv.set(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)); rv.addScaledVector(vDir, -rv.dot(vDir));
+        if (rv.lengthSq() < 1e-4) rv.set(1, 0, 0);
+        rv.normalize().multiplyScalar(rnd(1.6, 9));
+        s.x = vDir.x * a2 + rv.x; s.y = vDir.y * a2 + rv.y; s.z = vDir.z * a2 + rv.z;
+      }
+      const o = i * 6; streakPos[o] = s.x; streakPos[o + 1] = s.y; streakPos[o + 2] = s.z;
+      streakPos[o + 3] = s.x + vDir.x * len; streakPos[o + 4] = s.y + vDir.y * len; streakPos[o + 5] = s.z + vDir.z * len;
     });
     streakG.attributes.position.needsUpdate = true;
     const inCloud = cloudDensity(cam.position);
@@ -1255,7 +1355,7 @@
   addEventListener('resize', resize); resize();
   let last = performance.now();
   function frame(now) {
-    const dt = Math.min(0.04, (now - last) / 1000); last = now; clock += dt;
+    const dt = Math.min(0.05, (now - last) / 1000); last = now; clock += dt;
     if (dt > 0) {
       if (state === 'play') { if (!paused) { fly(dt); hunt(dt); } }
       else if (state === 'ready') orbitCam();

@@ -33,6 +33,14 @@
   #vignette, #flash { position: absolute; inset: 0; pointer-events: none; opacity: 0; }
   #vignette { background: radial-gradient(ellipse at center, rgba(13,31,41,0) 38%, rgba(13,31,41,0.92) 100%); }
   #flash { background: var(--paper); }
+  #edgeblur, #cloud { position: absolute; inset: 0; pointer-events: none; opacity: 0; }
+  #edgeblur {
+    backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px);
+    -webkit-mask-image: radial-gradient(ellipse at center, transparent 42%, #000 88%); mask-image: radial-gradient(ellipse at center, transparent 42%, #000 88%);
+  }
+  #cloud { background: radial-gradient(ellipse at center, rgba(244,246,248,0.9), rgba(220,227,233,0.98)); }
+  .hud, .legend, .mk { transition: opacity 0.5s; }
+  .stage.falling .hud, .stage.falling .legend, .stage.falling .mk { opacity: 0.12; }
   #warn { box-shadow: inset 0 0 110px 34px rgba(255,107,87,0.9); display: grid; place-items: center; position: absolute; inset: 0; pointer-events: none; opacity: 0; }
   #warn span { font-family: var(--display); font-size: clamp(26px, 6vw, 40px); color: var(--danger); margin-top: 24vh; text-shadow: 0 2px 6px rgba(13,31,41,0.9); }
 
@@ -126,6 +134,8 @@
 
 <div class="stage" id="stage">
   <canvas id="gl" aria-label="First-person view from an eagle over a fjord"></canvas>
+  <div id="edgeblur" hidden></div>
+  <div id="cloud" hidden></div>
   <div id="vignette"></div>
   <div id="flash"></div>
   <div id="warn"><span id="warnText" hidden>PULL UP</span></div>
@@ -148,9 +158,10 @@
     <span><kbd id="kClimb">&darr;</kbd>climb</span>
     <span><kbd id="kDive">&uarr;</kbd>nose down</span>
     <span><kbd>Space</kbd>flap</span>
-    <span><kbd>Shift</kbd>fold wings, dive</span>
+    <span><kbd>Shift</kbd>fold wings, fall</span>
     <span><kbd>C</kbd>brake, land</span>
     <span><kbd>V</kbd>view</span>
+    <span id="legendR"><kbd>R</kbd>back to the cliff</span>
     <span><kbd>I</kbd>invert up/down</span>
   </div>
 
@@ -168,10 +179,11 @@
       <ul>
         <li>Steer with the <b>arrow keys</b> (or WASD). On a phone, drag anywhere.</li>
         <li><kbd>Space</kbd> flaps. Each press is one wingbeat; hold it to keep beating.</li>
-        <li>Hold <kbd>Shift</kbd> to fold your wings and fall. Let go and pull up to swoop out.</li>
+        <li>Hold <kbd>Shift</kbd> to fold your wings and fall. Let go and pull up to swoop out, but start early: at full speed you need a long arc.</li>
+        <li><b>Just fly</b> starts on the edge of a 900 m cliff. <kbd>Shift</kbd> drops you off; <kbd>R</kbd> brings you back.</li>
         <li>Hold <kbd>C</kbd> to flare and brake. Brake low and slow over land, or at the nest, to perch.</li>
         <li><kbd>V</kbd> switches between the eagle's own eyes and a view from behind it.</li>
-        <li>Circle inside the swirling <b>thermals</b> to climb without flapping.</li>
+        <li>Circle inside the swirling <b>thermals</b> to climb into the clouds, then fall back out of them.</li>
         <li>Skim the water over a school to snatch a <b>salmon</b>, then carry it to the nest.</li>
         <li>Fly straight through <b>ravens</b> at the nest. Hit a rival eagle at dive speed or it takes your fish.</li>
       </ul>
@@ -228,6 +240,8 @@
     for (let o = 0; o < 4; o++) { s += a * vnoise(x * f, y * f); a *= 0.5; f *= 2.03; }
     return s / 0.9375;
   }
+  const sstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+  const CLIFF = { z: -480, face: 430, top: 940 };
   const chanX = z => 260 * Math.sin(z * 0.0011) + 120 * Math.sin(z * 0.0027 + 1.3);
   function height(x, z) {              // metres above the channel; <= 0 is water
     const d = Math.abs(x - chanX(z));
@@ -237,7 +251,13 @@
     t = Math.min(t, 1.4);
     const base = Math.pow(t, 1.25) * 800 * (0.45 + 0.9 * fbm(x * 0.0016, z * 0.0016));
     const ridge = (1 - Math.abs(2 * fbm(x * 0.006 + 3, z * 0.006) - 1)) * 60 * Math.min(1, t * 3);
-    return base + ridge + 2;
+    let h = base + ridge + 2;
+    const o = chanX(z) - x;                                            // the cliff: a sunlit granite wall rising straight out of the far shore
+    if (o > CLIFF.face) {
+      const f = sstep(CLIFF.face, CLIFF.face + 28, o) * sstep(270, 205, Math.abs(z - CLIFF.z));
+      if (f > 0) h = Math.max(h, f * (CLIFF.top + 16 * fbm(x * 0.02, z * 0.02)));
+    }
+    return h;
   }
 
   // ---------- scene ----------
@@ -303,13 +323,18 @@
       void main() { vW = position; vN = normal; vS = shade; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: SKY + `uniform sampler2D uNoise; varying vec3 vW; varying vec3 vN; varying float vS;
       void main() {
-        float n1 = texture2D(uNoise, vW.xz * 0.0009).r, n2 = texture2D(uNoise, vW.xz * 0.006).g, n3 = texture2D(uNoise, vW.xz * 0.045).b;
+        float steepF = smoothstep(0.55, 0.85, 1.0 - normalize(vN).y);   // on cliffs, texture runs up the face instead of smearing
+        vec2 q = mix(vW.xz, vec2(vW.x + vW.z, vW.y * 1.7), steepF);
+        float n1 = texture2D(uNoise, q * 0.0009).r, n2 = texture2D(uNoise, q * 0.006).g, n3 = texture2D(uNoise, q * 0.045).b;
         float nd = n1 * 0.5 + n2 * 0.3 + n3 * 0.2, h = vW.y;
         vec3 n = normalize(normalize(vN) + vec3(n2 - 0.5, 0.0, n3 - 0.5) * 0.3);
         float slope = 1.0 - n.y;
         vec3 forest = mix(vec3(0.06, 0.14, 0.08), vec3(0.12, 0.23, 0.11), n2);
         vec3 meadow = mix(vec3(0.27, 0.34, 0.15), vec3(0.42, 0.40, 0.22), n1);
-        vec3 rock = mix(vec3(0.29, 0.28, 0.27), vec3(0.47, 0.44, 0.40), n3) * (0.85 + 0.25 * sin(h * 0.11 + n1 * 9.0));
+        float streak = texture2D(uNoise, vec2(q.x * 0.05, q.y * 0.0035)).r;   // rain streaks down the rock
+        float grit = texture2D(uNoise, q * 0.23).a;
+        vec3 rock = mix(vec3(0.30, 0.30, 0.31), vec3(0.54, 0.53, 0.52), n2 * 0.3 + n3 * 0.1 + grit * 0.15 + streak * 0.45);
+        rock *= (0.88 + 0.16 * sin(h * 0.11 + n1 * 9.0)) * mix(1.0, 0.78 + 0.32 * streak, steepF);
         vec3 beach = mix(vec3(0.40, 0.38, 0.33), vec3(0.56, 0.53, 0.46), n3);
         vec3 col = mix(forest, meadow, smoothstep(380.0, 520.0, h + nd * 120.0));
         col = mix(col, rock, smoothstep(0.26, 0.48, slope + (n3 - 0.5) * 0.15));
@@ -413,6 +438,7 @@
       if (Math.abs(x) > 2750) continue;
       const h = gridH(x, z);
       if (h < 4 || h > 520 || Math.random() > 1.25 - h / 480) continue;
+      if (Math.abs(gridH(x + 9, z) - gridH(x - 9, z)) + Math.abs(gridH(x, z + 9) - gridH(x, z - 9)) > 34) continue;   // nothing grows on sheer rock
       if (vnoise(x * 0.012, z * 0.012) < 0.3 && Math.random() < 0.8) continue;       // clearings
       const th = rnd(18, 36) * (1 - h / 1100);
       tp.set(x, h - 1, z); sc.set(th * 0.2, th, th * 0.2); q.setFromAxisAngle(up, Math.random() * 6.28);
@@ -422,6 +448,21 @@
     }
     trees.count = n; trees.frustumCulled = false; scene.add(trees);
   }
+
+  // the lip of the cliff: a perch with nine hundred metres of air below it
+  const summit = new THREE.Vector3(); const summitYaw = -Math.PI / 2;         // facing out over the channel
+  {
+    const x = chanX(CLIFF.z) - CLIFF.face - 31;
+    summit.set(x, height(x, CLIFF.z), CLIFF.z);
+    const wood = new THREE.MeshLambertMaterial({ color: 0x9a948a });
+    const snag = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.45, 9, 6), wood);
+    snag.position.set(summit.x - 5, summit.y + 4, summit.z - 4); snag.rotation.z = 0.12; scene.add(snag);
+    const branch = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.16, 3.4, 5), wood);
+    branch.position.copy(snag.position); branch.position.y += 2.2; branch.rotation.z = 1.0; scene.add(branch);
+  }
+  const thermSpots = [-1700, -850, 110, 950, 1750].map((z, i) => ({ z, x: chanX(z) + (i % 2 ? -1 : 1) * 470 }));
+  const CB = Math.round(Math.max(1250, summit.y + 160));                  // cloud base: thermals top out here
+  const cloudVols = thermSpots.map(t => ({ x: t.x, y: CB + 40, z: t.z, rx: 250, ry: 100 }));
 
   // clouds overhead and mist snagged on the slopes
   {
@@ -446,6 +487,7 @@
     };
     for (let i = 0; i < 46; i++) add(rnd(-11000, 11000), rnd(1500, 2600), rnd(-11000, 11000), rnd(1500, 3400), 0.92);
     for (let i = 0; i < 18; i++) { const z = rnd(-2600, 2600), sd = Math.random() < 0.5 ? -1 : 1; add(chanX(z) + sd * rnd(750, 1500), rnd(300, 560), z, rnd(500, 950), 0.5); }
+    for (const t of thermSpots) for (let i = 0; i < 11; i++) add(t.x + rnd(-180, 180), CB + rnd(-30, 110), t.z + rnd(-180, 180), rnd(300, 480), 0.97);  // cumulus on each thermal
   }
 
   // nest on a shoreline snag
@@ -456,7 +498,7 @@
     nest.set(x, h + 34, 0);
     const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1.6, 36, 6), new THREE.MeshLambertMaterial({ color: 0x6b5a48 }));
     trunk.position.set(x, h + 16, 0); scene.add(trunk);
-    const bowl = new THREE.Mesh(new THREE.CylinderGeometry(3.4, 2.2, 1.8, 9), new THREE.MeshLambertMaterial({ color: 0x4a3524, flatShading: true }));
+    const bowl = new THREE.Mesh(new THREE.CylinderGeometry(3.4, 2.2, 1.8, 9), new THREE.MeshLambertMaterial({ color: 0x4a3524 }));
     bowl.position.copy(nest); scene.add(bowl);
     for (const dx of [-0.8, 0.8]) {
       const chick = new THREE.Mesh(new THREE.SphereGeometry(0.75, 8, 6), new THREE.MeshLambertMaterial({ color: 0xc9cdd0 }));
@@ -466,15 +508,15 @@
 
   // thermals: rising spirals of motes
   const therms = [];
-  [-1700, -850, 110, 950, 1750].forEach((z, i) => {
-    const side = i % 2 ? -1 : 1, x = chanX(z) + side * 470, N = 240;
+  thermSpots.forEach(({ x, z }) => {
+    const N = 300, base = Math.max(0, height(x, z)), top = CB + 30 - base;
     const pts = [];
-    for (let j = 0; j < N; j++) pts.push({ a: rnd(0, 6.28), r: rnd(8, 58), y: rnd(0, 950) });
+    for (let j = 0; j < N; j++) pts.push({ a: rnd(0, 6.28), r: rnd(8, 76), y: rnd(0, top) });
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(N * 3), 3));
     const m = new THREE.Points(g, new THREE.PointsMaterial({ color: 0xfff1cf, size: 3, sizeAttenuation: false, transparent: true, opacity: 0.75 }));
     m.frustumCulled = false; scene.add(m);
-    therms.push({ x, z, base: Math.max(0, height(x, z)), pts, g, R: 62 });
+    therms.push({ x, z, base, top, pts, g, R: 85 });
   });
 
   // salmon schools
@@ -613,19 +655,19 @@
   const tmp = new THREE.Vector3(), tmp2 = new THREE.Vector3();
 
   // ---------- state ----------
-  const P = { pos: new THREE.Vector3(), yaw: 0, pitch: 0, roll: 0, v: 18, tuck: 0 };
+  const P = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), yaw: 0, pitch: 0, roll: 0, v: 18, tuck: 0, alpha: 0.13 };
   let state = 'ready', mode = 'nest', T = 0, clock = 0;
   let hunger = 100, delivered = 0, drove = 0, stoop = 0, carrying = false, nextRaid = 40;
   let third = false, camSnap = true, lifts = 0, liftT = 0, brakeAmt = 0, hurt = 0, warn = 0, beatP = -1, heave = 0, talonAmt = 0, shake = 0, flash = 0, gload = 0, statusUntil = 0, invert = true, lastMode = 'nest', touchMode = false;
   const keys = {}, pad = { dive: false, flap: false, brake: false }, stick = { x: 0, y: 0 };
-  const dir = new THREE.Vector3(), fw = new THREE.Vector3(), want = new THREE.Vector3(), look = new THREE.Vector3(), camPos = new THREE.Vector3();
+  const dir = new THREE.Vector3(), fw = new THREE.Vector3(), want = new THREE.Vector3(), look = new THREE.Vector3(), camPos = new THREE.Vector3(), camOff = new THREE.Vector3();
   try { third = localStorage.getItem('tt-view') === '3'; } catch (_) {}
   function setView(on) { third = on; camSnap = true; try { localStorage.setItem('tt-view', on ? '3' : '1'); } catch (_) {} say(on ? 'Following the eagle.' : "Through the eagle's eyes.", 2); }
 
   function say(text, secs) { $('status').textContent = text; $('status').style.opacity = 1; statusUntil = clock + (secs || 3); }
 
   function reset() {
-    P.pos.set(nest.x - 140, nest.y + 330, nest.z + 260); P.yaw = 0.25; P.pitch = -0.08; P.roll = 0; P.v = 19; P.tuck = 0; P.perched = false; P.afloat = false; lifts = 0; brakeAmt = 0; camSnap = true;
+    P.pos.set(nest.x - 140, nest.y + 330, nest.z + 260); P.yaw = 0.25; P.roll = 0; P.tuck = 0; P.alpha = 0.13; launch(19, -0.08); gload = 1; grace = 0; P.perched = false; P.afloat = false; lifts = 0; brakeAmt = 0; camSnap = true;
     T = 0; hunger = 100; delivered = 0; drove = 0; stoop = 0; carrying = false; nextRaid = 40;
     foes.forEach(f => scene.remove(f.mesh)); foes = [];
     fish.forEach(placeSchool);
@@ -636,7 +678,7 @@
   }
 
   // ---------- sound: soft wind, lapping water, birdsong ----------
-  let ac = null, master = null, windGain = null, windLP = null, waterGain = null, brown = null, white = null, nextSong = 3;
+  let ac = null, master = null, windGain = null, windLP = null, rushGain = null, rushBP = null, flutterOsc = null, flutterDepth = null, waterGain = null, brown = null, white = null, nextSong = 3;
   function audioInit() {
     if (ac) { if (ac.state === 'suspended') ac.resume(); return; }
     try {
@@ -653,6 +695,12 @@
       windLP = ac.createBiquadFilter(); windLP.type = 'lowpass'; windLP.frequency.value = 300; windLP.Q.value = 0.3;
       windGain = ac.createGain(); windGain.gain.value = 0;
       loop(1).connect(windLP); windLP.connect(windGain); windGain.connect(master);
+      rushBP = ac.createBiquadFilter(); rushBP.type = 'bandpass'; rushBP.frequency.value = 800; rushBP.Q.value = 0.8;   // the roar of a stoop
+      const flutter = ac.createGain(); flutter.gain.value = 1;
+      flutterOsc = ac.createOscillator(); flutterOsc.frequency.value = 20; flutterDepth = ac.createGain(); flutterDepth.gain.value = 0;
+      flutterOsc.connect(flutterDepth); flutterDepth.connect(flutter.gain); flutterOsc.start();                       // feathers buzzing at speed
+      rushGain = ac.createGain(); rushGain.gain.value = 0;
+      loop(1.3).connect(rushBP); rushBP.connect(flutter); flutter.connect(rushGain); rushGain.connect(master);
       const wf = ac.createBiquadFilter(); wf.type = 'bandpass'; wf.frequency.value = 650; wf.Q.value = 0.4;
       const swell = ac.createGain(); swell.gain.value = 0.55;
       const lfo = ac.createOscillator(), depth = ac.createGain(); lfo.frequency.value = 0.17; depth.gain.value = 0.4;
@@ -709,6 +757,7 @@
       return;
     }
     if (ev.code === 'KeyV' && !ev.repeat) { setView(!third); return; }
+    if (ev.code === 'KeyR' && !ev.repeat && mode === 'free') { toSummit(); return; }
     if (ev.code === 'KeyI' && !ev.repeat) { setInvert(!invert); say(invert ? 'Inverted: down climbs.' : 'Not inverted: up climbs.', 2.5); return; }
     const k = keymap[ev.code]; if (k) { keys[k] = true; ev.preventDefault(); }
   });
@@ -754,7 +803,8 @@
     mode = lastMode = m; audioInit(); reset(); state = 'play'; beatP = -1;
     if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
     $('startWrap').hidden = true; $('overWrap').hidden = true; $('hud').hidden = false; $('pads').hidden = !touchMode; $('legend').hidden = touchMode;
-    $('nestStat').hidden = $('meter').hidden = mode !== 'nest';
+    $('nestStat').hidden = $('meter').hidden = mode !== 'nest'; $('legendR').hidden = mode !== 'free';
+    if (mode === 'free') { toSummit(); return; }
     say(touchMode ? 'Drag to steer. FLAP beats your wings, BRAKE slows you to land.' : mode === 'nest' ? 'The eaglets are hungry. Find a salmon in the channel.' : 'The channel is yours.', 4);
   }
   function gameOver() {
@@ -767,15 +817,29 @@
   $('nestBtn').addEventListener('click', () => start('nest')); $('freeBtn').addEventListener('click', () => start('free'));
   $('againBtn').addEventListener('click', () => start('nest')); $('againFreeBtn').addEventListener('click', () => start('free'));
 
-  // ---------- flight ----------
-  const G = 12;
+  // ---------- flight: momentum, gravity, lift and drag ----------
+  // Your velocity is a real vector. Gravity always pulls down; the wings make lift at right angles to the airflow,
+  // growing with the square of airspeed. Fold them and lift vanishes: you keep your forward momentum and gravity
+  // bends your path over into a fall. Pull out and the wings turn that speed back into height, up to the g a bird can take.
+  const G = 9.81, MAXG = 6.5, YAXIS = new THREE.Vector3(0, 1, 0);
+  const vHat = new THREE.Vector3(), upV = new THREE.Vector3(), rtV = new THREE.Vector3(), liftDir = new THREE.Vector3(), rY = new THREE.Vector3(), acc = new THREE.Vector3();
+  let floatArmed = true, whumpArmed = true, grace = 0;
+  function launch(speed, pitch) {
+    P.vel.set(-Math.sin(P.yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(P.yaw) * Math.cos(pitch)).multiplyScalar(speed);
+    P.v = speed; P.pitch = pitch; dir.copy(P.vel).normalize();
+  }
+  function toSummit() {
+    P.pos.set(summit.x, summit.y + 2.3, summit.z); P.yaw = summitYaw; P.pitch = -0.38; P.roll = 0; P.alpha = 0.13;
+    P.vel.set(0, 0, 0); P.v = 0; P.tuck = 1; P.perched = true; P.afloat = false; beatP = -1; brakeAmt = 0; camSnap = true; gload = 1;
+    say('The cliff edge, ' + Math.round(summit.y) + ' m above the water. ' + (touchMode ? 'Hold DIVE to drop off.' : 'Hold Shift to drop off.'), 6);
+  }
   function fly(dt) {
     let ix = (keys.right ? 1 : 0) - (keys.left ? 1 : 0) + stick.x;
     let iy = (keys.up ? 1 : 0) - (keys.down ? 1 : 0) - stick.y;
     if (invert) iy = -iy;
     ix = clamp(ix, -1, 1); iy = clamp(iy, -1, 1);
-    if (P.perched) {                                                   // sitting still: look around, flap to leave
-      P.yaw -= ix * 1.3 * dt; P.pitch = clamp(P.pitch + iy * dt, -0.9, 0.9); P.roll *= 0.85; P.v = 0; brakeAmt *= 0.85;
+    if (P.perched) {                                                   // sitting still: look around, flap or drop to leave
+      P.yaw -= ix * 1.3 * dt; P.pitch = clamp(P.pitch + iy * dt, -0.9, 0.9); P.roll *= 0.85; P.v = 0; P.vel.set(0, 0, 0); brakeAmt *= 0.85; gload = 1;
       const flapKey = !!(keys.flap || pad.flap);
       if (P.afloat) {                                                  // on the water: it takes several hard beats in a row to get out
         P.tuck += (0.3 - P.tuck) * Math.min(1, dt * 5);
@@ -792,32 +856,28 @@
         if (liftT <= 0 && lifts > 0) { lifts = 0; say('You settle back onto the water. Keep flapping without a pause.', 3); }
         P.pos.y += (0.45 + lifts * 0.4 + Math.sin(clock * 1.7) * 0.06 - P.pos.y) * Math.min(1, dt * 6);
         poseWings();
-        if (lifts >= 4) { P.perched = P.afloat = false; lifts = 0; P.v = 11; P.pitch = 0.3; P.pos.y = 2.4; P.tuck = 0; say('Airborne.', 1.5); }
+        if (lifts >= 4) { P.perched = P.afloat = false; lifts = 0; P.pos.y = 2.4; P.tuck = 0; P.alpha = 0.2; launch(14, 0.25); grace = 1.2; say('Airborne.', 1.5); }
         return;
       }
       P.tuck += (1 - P.tuck) * Math.min(1, dt * 5); heave *= 0.8;
       const sw = 0.15 - P.tuck * 1.6; wingR.rotation.set(0, sw, 0.1); wingL.rotation.set(0, -sw, -0.1);
-      if (flapKey) { P.perched = false; P.v = 12; P.pitch = 0.4; P.pos.y += 1; P.tuck = 0; beatP = 0; say('Airborne.', 1.5); }
+      if (keys.dive || pad.dive) {                                     // step off head first
+        P.perched = false; P.pos.y += 0.6; P.alpha = 0; launch(8, -0.12); P.tuck = 0.6; beatP = -1; grace = 0.6; $('status').style.opacity = 0;
+        return;
+      }
+      if (flapKey) { P.perched = false; P.pos.y += 1; P.tuck = 0; beatP = 0; P.alpha = 0.2; launch(13, 0.3); grace = 0.8; say('Airborne.', 1.5); }
       return;
     }
     const tuck = !!(keys.dive || pad.dive), flapIn = !!(keys.flap || pad.flap), braking = !tuck && !!(keys.brake || pad.brake);
+    const pushing = iy < -0.4;
     brakeAmt += ((braking ? 1 : 0) - brakeAmt) * Math.min(1, dt * 5);
     P.tuck += ((tuck ? 1 : 0) - P.tuck) * Math.min(1, dt * 7);
-    const ctl = 1 - 0.55 * P.tuck;
+    let s = Math.max(0.5, P.vel.length());
+    const steep = clamp((-P.vel.y / s - 0.72) / 0.2, 0, 1);              // nearly straight down
 
-    P.roll += (ix * 1.15 * ctl - P.roll) * Math.min(1, dt * 4);
-    P.yaw -= Math.sin(P.roll) * clamp(22 / P.v, 0.5, 1.5) * dt;
-
-    const before = P.pitch;
-    P.pitch += iy * clamp(0.5 + P.v * 0.035, 0.6, 2) * ctl * dt;       // faster air, more bite
-    if (tuck) P.pitch += (-1.36 - P.pitch) * 1.3 * dt;                 // wings folded: the nose drops away
-    if (!tuck && !braking && P.v < 11 && P.pitch > 0) P.pitch -= 0.8 * dt;         // stall
-    P.pitch = clamp(P.pitch, -1.46, 1.1);
-    gload += (Math.max(0, (P.pitch - before) / dt) * P.v / G - gload) * Math.min(1, dt * 6);
-
-    // wingbeats: each one is a short upstroke, a hard downstroke that shoves you forward and up, then recovery
+    // wingbeats: a short upstroke, then a hard downstroke that pushes you forward and up
     if (tuck) beatP = -1;
-    else if (beatP < 0 && ((flapIn && P.v < 34) || (P.v < 13 && !braking))) beatP = 0;
+    else if (beatP < 0 && ((flapIn && P.v < 34) || (P.v < 12 && !braking && iy < 0.3))) beatP = 0;
     let power = 0;
     if (beatP >= 0) {
       const was = beatP; beatP += dt / 0.52;
@@ -826,44 +886,88 @@
       if (beatP >= 1) beatP = -1;
     }
     heave += (power - heave) * Math.min(1, dt * 14);
-    const acc = -G * Math.sin(P.pitch) - lerp(0.0022, 0.0008, P.tuck) * P.v * P.v + power * 18
-      - brakeAmt * (0.03 * P.v * P.v + 2);                             // flared wings and tail: a wall of drag
-    P.v = clamp(P.v + acc * dt, lerp(6, 3, brakeAmt), 100);
-    P.pos.y += power * 3.4 * dt - brakeAmt * clamp((14 - P.v) / 8, 0, 1) * 3 * dt;
-    if (P.tuck > 0.5) stoop = Math.max(stoop, P.v);
 
-    dir.set(-Math.sin(P.yaw) * Math.cos(P.pitch), Math.sin(P.pitch), -Math.cos(P.yaw) * Math.cos(P.pitch));
-    P.pos.addScaledVector(dir, P.v * dt);
+    // banking tilts the lift so it turns you; straight down, left and right spiral the stoop instead
+    P.roll += (ix * 1.1 * (1 - 0.5 * P.tuck) * (1 - steep) - P.roll) * Math.min(1, dt * 4);
+    if (steep > 0 && ix) { const a = -ix * 1.1 * steep * dt; P.yaw += a; P.vel.applyAxisAngle(YAXIS, a); }
 
-    for (const th of therms) {                                          // rising air
+    // pitch input sets how hard you pull, in g. Hands off, the bird holds its path, trades spare speed for a gentle climb
+    // and dips a little when slow; the wings then find the angle of attack that load needs, up to the stall
+    const pathUp = P.vel.y / s, cosPath = Math.sqrt(Math.max(0, 1 - pathUp * pathUp));
+    let nCmd = clamp(cosPath + 0.5 * (s - 20) / 20, -0.3, 2) / Math.max(Math.cos(P.roll), 0.4) + (iy > 0 ? iy * 6 : iy * 1.6);
+    if (!tuck && !braking && height(P.pos.x, P.pos.z) <= 0) {           // instinct over water: pull out unless you mean to go in
+      const pred = P.pos.y + P.vel.y * 0.9;
+      if (pred < 2.5) nCmd += clamp((2.5 - pred) * 0.4, 0, 3) * (pushing ? 0.1 : 1);
+    }
+    let alphaCmd = clamp(nCmd * G / (0.043 * (1 - 0.82 * P.tuck) * 4.4 * Math.max(s * s, 25)), -0.15, 0.32);
+    if (tuck) alphaCmd = -0.1 + iy * 0.1;                               // folded: almost no lift, you just fall
+    if (braking) alphaCmd = lerp(alphaCmd, 0.6, brakeAmt);
+    if (P.vel.y / s < -0.96) alphaCmd = Math.max(alphaCmd, 0);          // don't tumble past vertical onto your back
+    P.alpha += (alphaCmd - P.alpha) * Math.min(1, dt * 6);
+
+    const stall = Math.max(0, P.alpha - 0.34);
+    const CL = P.alpha <= 0.34 ? P.alpha * 4.4 : lerp(1.5, 0.8, clamp(stall / 0.25, 0, 1));
+    const lk = 0.043 * (1 - 0.82 * P.tuck);
+    const kd = lerp(0.0016, 0.00115, P.tuck) + 0.0024 * CL * CL * (1 - P.tuck) + 0.02 * stall + 0.011 * brakeAmt;
+    const steps = Math.max(1, Math.ceil(dt / 0.008)), hs = dt / steps;
+    let nSum = 0;
+    for (let k = 0; k < steps; k++) {
+      s = Math.max(0.5, P.vel.length()); vHat.copy(P.vel).divideScalar(s);
+      rY.set(Math.cos(P.yaw), 0, -Math.sin(P.yaw));
+      upV.crossVectors(rY, vHat).normalize(); rtV.crossVectors(vHat, upV);
+      liftDir.copy(upV).multiplyScalar(Math.cos(P.roll)).addScaledVector(rtV, Math.sin(P.roll));
+      const lift = clamp(lk * CL * s * s, -2 * G, MAXG * G);
+      acc.copy(liftDir).multiplyScalar(lift)
+        .addScaledVector(vHat, power * 12 - kd * s * s)
+        .addScaledVector(upV, power * 6)
+        .addScaledVector(rY, ix * 6 * steep);
+      acc.y -= G;
+      nSum += (lift + power * 6) / G;
+      P.vel.addScaledVector(acc, hs); P.pos.addScaledVector(P.vel, hs);
+    }
+    gload += (nSum / steps - gload) * Math.min(1, dt * 8);
+
+    for (const th of therms) {                                          // rising air carries you up to the cloud base
       const d = Math.hypot(P.pos.x - th.x, P.pos.z - th.z);
-      if (d < th.R && P.pos.y < th.base + 980) P.pos.y += 9 * (1 - (d / th.R) * (d / th.R)) * (1 - 0.7 * P.tuck) * dt;
+      if (d < th.R && P.pos.y < CB + 30) P.pos.y += 21 * (1 - (d / th.R) * (d / th.R)) * (1 - 0.7 * P.tuck) * dt;
     }
 
+    s = P.vel.length(); P.v = s;
+    const hz = Math.hypot(P.vel.x, P.vel.z);
+    if (hz > 0.8) { let d = Math.atan2(-P.vel.x, -P.vel.z) - P.yaw; d = Math.atan2(Math.sin(d), Math.cos(d)); P.yaw += d * clamp((hz - 0.8) / 4, 0, 1); }
+    const pp = Math.asin(clamp(P.vel.y / Math.max(s, 0.5), -1, 1));   // the angle of your path
+    P.pitch = clamp(pp + Math.min(P.alpha, 0.3) * Math.cos(P.roll), -1.55, 1.3);
+    if (s > 0.5) dir.copy(P.vel).divideScalar(s);
+    if (P.tuck > 0.5) stoop = Math.max(stoop, s);
+
+    // the body: a hush as you go weightless, a thump as the pull-out loads you up
+    if (gload < 0.35 && floatArmed && s > 10) { hush = 1; floatArmed = false; }
+    if (gload > 0.75) floatArmed = true;
+    if (gload > 3.2 && whumpArmed && s > 30) { whumpArmed = false; burst(brown, 1.0, 380, 55, third ? 0.35 : 0.9, 0.06); try { if (navigator.vibrate) navigator.vibrate(35); } catch (_) {} }
+    if (gload < 1.8) whumpArmed = true;
+
+    grace -= dt;
     const h = height(P.pos.x, P.pos.z);
     if (h <= 0) {
-      if (!tuck) {                                                     // instinct: level off above the water unless you push the nose down
-        const pushing = iy < -0.4, pred = P.pos.y + P.v * Math.sin(P.pitch) * 0.9;
-        if (pred < 1.8 && P.pitch < 0.05) P.pitch += clamp((1.8 - pred) * 0.35, 0, 2.6) * (pushing ? 0.12 : 1) * dt;
-        if (!pushing && !braking && P.pos.y < 1.3 && P.v > 16) { P.pos.y = 1.3; P.pitch = Math.max(P.pitch, 0); }
-      }
+      if (!tuck && !pushing && !braking && P.pos.y < 1.3 && s > 16) { P.pos.y = 1.3; P.vel.y = Math.max(P.vel.y, 0); }
       if (P.pos.y < 0.9) {
-        if (P.v > 16 && P.pitch < -0.3) { flash = 0.7; shake = 1; puff(0.6, 900, 0.5); settle('You hit the water hard.'); }
-        else if (P.v <= 16) { puff(0.3, 1200, 0.2); settle('You settle onto the water.'); }
-        else { P.pos.y = 0.9; puff(0.15, 1400, 0.12); P.pitch = Math.max(P.pitch, 0.06); }
+        if (grace > 0) { P.pos.y = 0.9; P.vel.y = Math.max(P.vel.y, 1); }
+        else if (s > 16 && pp < -0.3) { flash = 0.7; shake = 1; puff(0.6, 900, 0.5); settle('You hit the water hard.'); }
+        else if (s <= 16) { puff(0.3, 1200, 0.2); settle('You settle onto the water.'); }
+        else { P.pos.y = 0.9; puff(0.15, 1400, 0.12); P.vel.y = Math.max(P.vel.y, 0.3); }
       }
-    } else if (P.pos.y < h + 2.8 && brakeAmt > 0.5 && P.v < 14) {
+    } else if (P.pos.y < h + 2.8 && brakeAmt > 0.5 && s < 14) {
       perch(h + 1.3, 'Perched.');
-    } else if (P.pos.y < h + 2) {
-      P.pos.y = h + 2;
-      if (P.v > 24) { P.v *= 0.5; shake = 1; hurt = 0.7; puff(0.3, 300, 0.5); say('You clipped the hillside. Brake to slow down.', 3); }
-      P.pitch = Math.max(P.pitch, 0.25);
+    } else if (P.pos.y < h + (grace > 0 ? 0.3 : 2)) {
+      P.pos.y = h + (grace > 0 ? 0.3 : 2);
+      if (s > 24) { P.vel.multiplyScalar(0.5); shake = 1; hurt = 0.7; puff(0.3, 300, 0.5); say('You clipped the hillside. Pull out earlier.', 3); }
+      P.vel.y = Math.max(P.vel.y, 3);
     }
-    if (!P.perched && brakeAmt > 0.5 && P.v < 17 && P.pos.distanceTo(nest) < 9) { P.pos.x = nest.x; P.pos.z = nest.z; perch(nest.y + 2.4, 'Home on the nest.'); }
+    if (!P.perched && brakeAmt > 0.5 && s < 17 && P.pos.distanceTo(nest) < 9) { P.pos.x = nest.x; P.pos.z = nest.z; perch(nest.y + 2.4, 'Home on the nest.'); }
     const off = P.pos.x - chanX(P.pos.z);                               // keep the bird over the fjord
     if (Math.abs(P.pos.z) > 2150 || Math.abs(off) > 1900) {
       let d = Math.atan2(P.pos.x - chanX(0), P.pos.z) - P.yaw;
-      d = Math.atan2(Math.sin(d), Math.cos(d)); P.yaw += d * dt * 1.2;
+      d = Math.atan2(Math.sin(d), Math.cos(d)); P.yaw += d * dt * 1.2; P.vel.applyAxisAngle(YAXIS, d * dt * 1.2);
       if (clock > statusUntil) say('Headwind off the icefield. Turning back to the channel.', 2);
     }
 
@@ -877,13 +981,16 @@
     const sweep = 0.15 - P.tuck * 1.6;
     wingR.rotation.y = sweep; wingL.rotation.y = -sweep;
     wingR.rotation.x = wingL.rotation.x = brakeAmt * 0.55;            // flare: leading edges tip up
+    const tr = clamp((P.v - 40) / 50, 0, 1) * 0.03;                    // folded feathers tremble in the airflow
+    wingR.rotation.z += Math.sin(clock * 53) * tr; wingL.rotation.z -= Math.sin(clock * 47 + 1) * tr;
+    wingR.rotation.y += Math.sin(clock * 61 + 2) * tr; wingL.rotation.y -= Math.sin(clock * 57) * tr;
   }
   function settle(msg) {
-    P.perched = P.afloat = true; P.pos.y = 0.45; P.v = 0; P.pitch = 0; beatP = -1; lifts = 0;
+    P.perched = P.afloat = true; P.pos.y = 0.45; P.v = 0; P.vel.set(0, 0, 0); P.pitch = 0; beatP = -1; lifts = 0;
     say(msg + (touchMode ? ' Hold FLAP: four hard wingbeats lift you off.' : ' Hold Space: four hard wingbeats lift you off.'), 5);
   }
   function perch(y, msg) {
-    P.perched = true; P.afloat = false; P.pos.y = y; P.v = 0; P.pitch = 0; beatP = -1; whoosh();
+    P.perched = true; P.afloat = false; P.pos.y = y; P.v = 0; P.vel.set(0, 0, 0); P.pitch = 0; beatP = -1; whoosh();
     say(msg + (touchMode ? ' Drag to look around, FLAP takes off.' : ' Arrows look around, Space takes off.'), 5);
   }
 
@@ -965,7 +1072,7 @@
     for (const th of therms) {
       const arr = th.g.attributes.position.array;
       th.pts.forEach((p, j) => {
-        p.a += (1.5 - p.r / 70) * dt; p.y += 10 * dt; if (p.y > 950) p.y = 0;
+        p.a += (1.5 - p.r / 80) * dt; p.y += 14 * dt; if (p.y > th.top) p.y = 0;
         arr[j * 3] = th.x + Math.cos(p.a) * p.r; arr[j * 3 + 1] = th.base + p.y; arr[j * 3 + 2] = th.z + Math.sin(p.a) * p.r;
       });
       th.g.attributes.position.needsUpdate = true;
@@ -985,31 +1092,55 @@
     glintM.opacity = 0.55 + Math.sin(clock * 7) * 0.45;
   }
 
-  // ---------- camera and the feel of speed ----------
+  // ---------- camera and the feel of speed and falling ----------
+  const up0 = new THREE.Vector3(0, 1, 0), hdV = new THREE.Vector3();
+  let stomach = 0, hush = 0, blurOn = false, cloudOn = false, fallingUI = false;
+  function cloudDensity(p) {
+    let m = 0;
+    for (const c of cloudVols) {
+      const dx = (p.x - c.x) / c.rx, dy = (p.y - c.y) / c.ry, dz = (p.z - c.z) / c.rx;
+      m = Math.max(m, 1 - clamp((Math.sqrt(dx * dx + dy * dy + dz * dz) - 0.55) / 0.5, 0, 1));
+    }
+    return m;
+  }
   function view(dt) {
-    shake = Math.max(0, shake - dt * 2.5); flash = Math.max(0, flash - dt * 1.6);
-    const rush = clamp((P.v - 30) / 55, 0, 1), jit = rush * 0.012 + shake * 0.05;
+    shake = Math.max(0, shake - dt * 2.5); flash = Math.max(0, flash - dt * 1.6); hush = Math.max(0, hush - dt * 1.3);
+    const rush = clamp((P.v - 30) / 55, 0, 1);
+    const buf = Math.pow(clamp((P.v - 32) / 58, 0, 1), 1.5) * 0.016 + shake * 0.045;   // smooth buffeting that grows with speed
+    const bx = (Math.sin(clock * 13.1) + 0.6 * Math.sin(clock * 23.7 + 1.3) + 0.3 * Math.sin(clock * 41.3 + 2.1)) * buf;
+    const by = (Math.sin(clock * 11.3 + 0.7) + 0.5 * Math.sin(clock * 29.1 + 2.9)) * buf;
+    const bz = (Math.sin(clock * 9.7 + 2.2) + 0.5 * Math.sin(clock * 31.9)) * buf;
+    const flying = state === 'play' && !P.perched;
+    stomach += ((flying ? clamp((1 - gload) * 0.35, -0.9, 0.4) : 0) - stomach) * Math.min(1, dt * 5);   // float up weightless, sink under load
     waterMat.uniforms.uTime.value = clock;
     const tp = third && state !== 'ready';
     eagle.visible = tp; wingRig.visible = !tp; talons.visible = !tp;
-    if (tp) {                                                          // follow from behind and a little above, with some lag
+    if (tp) {                                                          // trail the flight path from behind and a little above
       const cp = Math.cos(P.pitch);
       fw.set(-Math.sin(P.yaw) * cp, Math.sin(P.pitch), -Math.cos(P.yaw) * cp);
+      const path = (P.perched || P.v < 3) ? fw : dir;
       eagle.position.copy(P.pos); eagle.position.y += heave * 0.3 - 0.2;
       eagle.rotation.set(P.perched ? 0 : P.pitch, P.yaw, P.perched ? 0 : -P.roll);
       eWR.rotation.copy(wingR.rotation); eWL.rotation.copy(wingL.rotation); eFish.visible = carrying;
-      want.copy(P.pos).addScaledVector(fw, -(7.5 + clamp((P.v - 18) / 60, 0, 1) * 3)); want.y += 3.6;
-      if (camSnap) { camPos.copy(want); camSnap = false; } else camPos.lerp(want, 1 - Math.exp(-dt * 7));
+      const steep = clamp((-path.y - 0.55) / 0.4, 0, 1);
+      rY.set(Math.cos(P.yaw), 0, -Math.sin(P.yaw)); upV.crossVectors(rY, path).normalize();   // the eagle's back
+      const close = Math.max(rush, P.tuck * 0.8);                       // tuck in close behind the eagle when it folds and falls
+      want.copy(P.pos).addScaledVector(path, -(7.5 - close * 3.5)).addScaledVector(upV, 3.4 - close * 1.5); want.y += stomach * 1.6;
+      want.sub(P.pos);                                                 // smooth the offset from the bird, so speed never drags the camera back
+      if (camSnap) { camOff.copy(want); camSnap = false; } else camOff.lerp(want, 1 - Math.exp(-dt * 6));
+      camPos.copy(P.pos).add(camOff);
       camPos.y = Math.max(camPos.y, Math.max(0, height(camPos.x, camPos.z)) + 0.8);
       cam.position.copy(camPos);
-      look.copy(P.pos).addScaledVector(fw, 9); look.y += 0.4; cam.lookAt(look);
-      cam.rotateZ(-P.roll * 0.3 + (Math.random() - 0.5) * jit); cam.rotateX((Math.random() - 0.5) * jit);
+      cam.up.copy(upV);                                                // looking straight down, the way you were heading is up on screen
+      look.copy(P.pos).addScaledVector(path, 9).addScaledVector(upV, 0.4); cam.lookAt(look);
+      cam.rotateZ(-P.roll * 0.3 * (1 - steep) + bz); cam.rotateX(bx);
     } else {
-      cam.position.copy(P.pos); cam.position.y += heave * 0.4;
-      cam.rotation.set(P.pitch - P.tuck * 0.1 + heave * 0.035 + brakeAmt * 0.09 + (Math.random() - 0.5) * jit, P.yaw + (Math.random() - 0.5) * jit, -P.roll * 0.85 + (Math.random() - 0.5) * jit * 0.6);
+      cam.up.copy(up0);
+      cam.position.copy(P.pos); cam.position.y += heave * 0.4 + stomach;
+      cam.rotation.set(clamp(P.pitch - P.tuck * 0.1 + heave * 0.035 + brakeAmt * 0.09 - stomach * 0.06 + bx, -1.56, 1.4), P.yaw + by, -P.roll * 0.85 + bz * 0.6);
     }
     dome.position.copy(cam.position);
-    const fov = 72 + clamp((P.v - 16) / 70, 0, 1) * 44 - P.tuck * 3 + heave * 3;
+    const fov = 72 + clamp((P.v - 16) / 70, 0, 1) * (tp ? 18 : 40) - P.tuck * 3 + heave * 3 - clamp((gload - 2) / 4, 0, 1) * 6;
     cam.fov += (fov - cam.fov) * Math.min(1, dt * 4); cam.updateProjectionMatrix();
 
     talons.position.set(0, lerp(-1.5, -0.62, P.perched ? 0 : Math.max(talonAmt, brakeAmt)), -0.95); held.visible = carrying;
@@ -1020,27 +1151,42 @@
       const o = i * 6; streakPos[o] = streakPos[o + 3] = s.x; streakPos[o + 1] = streakPos[o + 4] = s.y; streakPos[o + 2] = s.z; streakPos[o + 5] = s.z - len;
     });
     streakG.attributes.position.needsUpdate = true;
-    streakM.opacity = clamp((P.v - 26) / 45, 0, 0.75);
+    const inCloud = cloudDensity(cam.position);
+    streakM.opacity = Math.max(clamp((P.v - 26) / 45, 0, 0.75), inCloud * 0.6);
 
-    $('vignette').style.opacity = clamp(rush * 0.75 + clamp((gload - 1.5) / 5, 0, 0.6), 0, 1).toFixed(2);
+    // grey-out under hard g, edge blur and a quiet screen when you fall fast, whiteout inside a cloud
+    $('vignette').style.opacity = clamp(rush * 0.4 + clamp((gload - 2.5) / 4, 0, 0.7), 0, 1).toFixed(2);
     $('flash').style.opacity = flash.toFixed(2);
+    const eb = state === 'play' ? clamp((P.v - 45) / 40, 0, 1) * 0.9 : 0;
+    if ((eb > 0.02) !== blurOn) { blurOn = eb > 0.02; $('edgeblur').hidden = !blurOn; }
+    if (blurOn) $('edgeblur').style.opacity = eb.toFixed(2);
+    if ((inCloud > 0.01) !== cloudOn) { cloudOn = inCloud > 0.01; $('cloud').hidden = !cloudOn; }
+    if (cloudOn) $('cloud').style.opacity = (inCloud * 0.94).toFixed(2);
+    const fallingNow = state === 'play' && P.v > 40 && dir.y < -0.4;
+    if (fallingNow !== fallingUI) { fallingUI = fallingNow; stage.classList.toggle('falling', fallingUI); }
 
-    // what is coming: your shadow on the ground ahead, and a warning when the flight path meets terrain
-    const live = state === 'play' && !P.perched, agl = P.pos.y - Math.max(0, height(P.pos.x, P.pos.z));
+    // what is coming: your shadow on the ground ahead, and a warning while there is still room to pull out
+    const live = flying, agl = P.pos.y - Math.max(0, height(P.pos.x, P.pos.z));
     const sk = tp ? 0.25 : 2.5, sx = P.pos.x - Math.sin(P.yaw) * agl * sk, sz = P.pos.z - Math.cos(P.yaw) * agl * sk;
     shadow.visible = live; shadow.position.set(sx, Math.max(0, height(sx, sz)) + 1, sz); shadow.rotation.y = P.yaw;
     shadow.material.opacity = 0.5 * clamp(1 - agl / 220, 0, 1);
     let danger = 0;
-    if (live && P.v > 14) for (let t = 0.4; t <= 2.01; t += 0.4) {
+    const tmax = Math.max(2, P.v / 38 + 1.3);
+    if (live && P.v > 14) for (let t = 0.3; t <= tmax + 0.01; t += 0.3) {
       const px = P.pos.x + dir.x * P.v * t, py = P.pos.y + dir.y * P.v * t, pz = P.pos.z + dir.z * P.v * t, hh = height(px, pz);
-      if (py < Math.max(0, hh) + 1.5 && (hh > 0 || P.pitch < -0.3)) { danger = 1 - (t - 0.4) / 2; break; }
+      if (py < Math.max(0, hh) + 1.5 && (hh > 0 || dir.y < -0.3)) { danger = 1 - (t - 0.3) / tmax; break; }
     }
     hurt = Math.max(0, hurt - dt * 1.5); warn += (danger - warn) * Math.min(1, dt * 8);
     $('warn').style.opacity = Math.max(warn, hurt).toFixed(2); $('warnText').hidden = warn < 0.35;
+
     if (ac && windGain) {
-      const k = clamp((P.v - 8) / 80, 0, 1), now = ac.currentTime, on = state === 'play';
-      windGain.gain.setTargetAtTime(on ? (0.07 + Math.pow(k, 1.5) * 0.6) * (third ? 0.4 : 1) : 0, now, 0.12);
-      windLP.frequency.setTargetAtTime(240 + P.v * 15, now, 0.12);
+      const k = clamp((P.v - 8) / 80, 0, 1), now = ac.currentTime, on = state === 'play', near = third ? 0.4 : 1, quiet = 1 - 0.7 * hush;
+      windGain.gain.setTargetAtTime(on ? (0.07 + Math.pow(k, 1.5) * 0.55) * near * quiet : 0, now, 0.1);
+      windLP.frequency.setTargetAtTime(240 + P.v * 14 - inCloud * 120, now, 0.12);
+      const rk = clamp((P.v - 36) / 50, 0, 1);
+      rushGain.gain.setTargetAtTime(on ? rk * rk * 0.42 * near * quiet : 0, now, 0.12);
+      rushBP.frequency.setTargetAtTime(450 + P.v * 9, now, 0.2);
+      flutterOsc.frequency.setTargetAtTime(12 + P.v * 0.2, now, 0.2); flutterDepth.gain.setTargetAtTime(rk * 0.5, now, 0.2);
       waterGain.gain.setTargetAtTime(on ? 0.3 * clamp(1 - P.pos.y / 180, 0, 1) : 0, now, 0.4);
       nextSong -= dt;
       if (on && nextSong <= 0) { song(0.03 * clamp(1 - (P.pos.y - 80) / 600, 0.2, 1)); nextSong = rnd(3, 9); }

@@ -1,5 +1,5 @@
 // Keeps the game playable offline once it has loaded. Bump VERSION whenever any file here changes.
-const VERSION = 'talon-f23682040e';
+const VERSION = 'talon-738b9ace96';
 const SHELL = ['./', 'index.html', 'three.min.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'icon-180.png'];
 
 self.addEventListener('install', e => {

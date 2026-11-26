@@ -46,6 +46,13 @@
     pointer-events: none;
   }
   .hud .stat { white-space: nowrap; }
+  .menuBtn {
+    pointer-events: auto; cursor: pointer; font: 700 12px var(--body); letter-spacing: 0.06em; color: var(--paper);
+    background: rgba(13,31,41,0.6); border: 2px solid var(--paper); border-radius: 999px; padding: 7px 14px;
+    -webkit-touch-callout: none; user-select: none; -webkit-user-select: none;
+  }
+  .stage.falling .hud .menuBtn { opacity: 1; }
+  .stage.menu .pads, .stage.menu .mk { visibility: hidden; }
   .hud .label { font-weight: 600; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.85; margin-right: 5px; }
   .meter { flex: 1; min-width: 70px; max-width: 260px; height: 12px; background: rgba(13,31,41,0.5); border: 2px solid var(--paper); border-radius: 999px; overflow: hidden; }
   .meter i { display: block; height: 100%; width: 100%; background: var(--gold); }
@@ -153,6 +160,7 @@
   <div id="warn"><span id="warnText" hidden>PULL UP</span></div>
 
   <div class="hud" id="hud" hidden>
+    <button class="menuBtn" id="menuBtn" type="button" aria-label="Pause and open the menu">MENU</button>
     <span class="stat"><span class="label">Salmon</span><span id="hudFish">0</span></span>
     <span class="stat" id="nestStat"><span class="label">Eaglets</span></span>
     <div class="meter" id="meter" role="img" aria-label="How well fed the eaglets are"><i id="meterFill"></i></div>
@@ -175,6 +183,7 @@
     <span><kbd>V</kbd>view</span>
     <span id="legendR"><kbd>R</kbd>back to the cliff</span>
     <span><kbd>I</kbd>invert up/down</span>
+    <span><kbd>Esc</kbd>menu</span>
   </div>
 
   <div class="pads" id="pads" hidden>
@@ -184,6 +193,18 @@
     <button class="pad" id="brakeBtn" type="button">BRAKE</button>
     <button class="pad" id="flapBtn" type="button">FLAP</button>
     <button class="pad dive" id="diveBtn" type="button">DIVE</button>
+  </div>
+
+  <div class="card-wrap" id="menuWrap" hidden>
+    <div class="card">
+      <h1>Paused</h1>
+      <div class="row">
+        <button class="btn" id="resumeBtn" type="button">Keep flying</button>
+        <button class="btn ghost" id="restartBtn" type="button">Start over</button>
+      </div>
+      <button class="btn ghost" id="mainBtn" type="button">Main menu</button>
+      <p class="hint homeHint" hidden>To put it on your home screen: turn the phone upright, tap <b>&middot;&middot;&middot;</b> or <b>Share</b> in Safari&rsquo;s bar, then <b>Add to Home Screen</b>.</p>
+    </div>
   </div>
 
   <div class="card-wrap" id="startWrap">
@@ -216,6 +237,8 @@
         <button class="btn ghost" id="freeBtn" type="button">Just fly</button>
       </div>
       <button class="btn ghost" id="fullBtn" type="button">Go fullscreen</button>
+      <button class="btn ghost" id="installBtn" type="button" hidden>Install on this phone</button>
+      <p class="hint homeHint" hidden>To put it on your home screen: turn the phone upright, tap <b>&middot;&middot;&middot;</b> or <b>Share</b> in Safari&rsquo;s bar, then <b>Add to Home Screen</b>.</p>
     </div>
   </div>
 
@@ -794,6 +817,8 @@
       else if (ev.code === 'KeyF') start('free');
       return;
     }
+    if (ev.code === 'Escape' && !ev.repeat) { menuOpen ? closeMenu() : openMenu(); return; }
+    if (menuOpen) return;
     if (ev.code === 'KeyV' && !ev.repeat) { setView(!third); return; }
     if (ev.code === 'KeyR' && !ev.repeat && mode === 'free') { toSummit(); return; }
     if (ev.code === 'KeyI' && !ev.repeat) { setInvert(!invert); say(invert ? 'Inverted: down climbs.' : 'Not inverted: up climbs.', 2.5); return; }
@@ -805,7 +830,35 @@
     for (const k in keys) keys[k] = false; pad.dive = pad.flap = pad.brake = false;
     if (state === 'play' && !touchMode) { paused = true; $('pauseWrap').hidden = false; if (master) master.gain.value = 0; }
   });
-  const resume = () => { if (paused) { paused = false; $('pauseWrap').hidden = true; if (master) master.gain.value = 0.9; } };
+  const resume = () => { if (paused) { paused = false; $('pauseWrap').hidden = true; if (master && !menuOpen) master.gain.value = 0.9; } };
+  // ---------- the in-game menu: a way out at any time ----------
+  let menuOpen = false;
+  function clearInput() { for (const k in keys) keys[k] = false; pad.dive = pad.flap = pad.brake = false; document.querySelectorAll('.pad.on').forEach(b => b.classList.remove('on')); }
+  function openMenu() {
+    if (state !== 'play' || menuOpen) return;
+    menuOpen = true; clearInput(); $('menuWrap').hidden = false; $('stage').classList.add('menu'); if (master) master.gain.value = 0;
+  }
+  function closeMenu() { if (!menuOpen) return; menuOpen = false; $('menuWrap').hidden = true; $('stage').classList.remove('menu'); if (master && !paused) master.gain.value = 0.9; }
+  function toMainMenu() {
+    closeMenu(); state = 'ready'; clearInput();
+    ['hud', 'pads', 'legend', 'mkNest', 'mkFish', 'mkFoe', 'overWrap'].forEach(i => $(i).hidden = true);
+    $('startWrap').hidden = false; $('stage').classList.remove('falling'); $('status').style.opacity = 0;
+  }
+  $('menuBtn').addEventListener('click', openMenu);
+  $('resumeBtn').addEventListener('click', closeMenu);
+  $('restartBtn').addEventListener('click', () => { const m = mode; closeMenu(); state = 'ready'; start(m); });
+  $('mainBtn').addEventListener('click', toMainMenu);
+  // putting it on the home screen: Safari has no button a page can press, so say where Safari's own is;
+  // Android Chrome offers an install prompt the page can show from a button
+  let installEvt = null;
+  addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; $('installBtn').hidden = false; });
+  $('installBtn').addEventListener('click', () => { if (!installEvt) return; installEvt.prompt(); installEvt = null; $('installBtn').hidden = true; });
+  {
+    const iOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const installed = navigator.standalone === true || (window.matchMedia && matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches);
+    let framed = true; try { framed = window.top !== window; } catch (_) {}
+    if (iOS && !installed && !framed) document.querySelectorAll('.homeHint').forEach(h => h.hidden = false);
+  }
   addEventListener('focus', resume);
   addEventListener('pointerdown', () => { try { window.focus(); } catch (_) {} resume(); }, true);
   $('fullBtn').addEventListener('click', () => {
@@ -874,7 +927,7 @@
   let steerId = null, sx0 = 0, sy0 = 0;
   stage.addEventListener('pointerdown', ev => {
     if (ev.pointerType === 'touch' && !touchMode) { touchMode = true; applyTouchUI(); if (state === 'play') { $('pads').hidden = false; $('legend').hidden = true; } }
-    if (state !== 'play' || ev.target.closest('button')) return;
+    if (state !== 'play' || menuOpen || ev.target.closest('button') || ev.target.closest('.card')) return;
     ev.preventDefault();
     if (steerId !== null) return;
     steerId = ev.pointerId; sx0 = ev.clientX; sy0 = ev.clientY; stick.x = stick.y = 0;
@@ -1357,7 +1410,7 @@
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000); last = now; clock += dt;
     if (dt > 0) {
-      if (state === 'play') { if (!paused) { fly(dt); hunt(dt); } }
+      if (state === 'play') { if (!paused && !menuOpen) { fly(dt); hunt(dt); } }
       else if (state === 'ready') orbitCam();
       else { P.v += (14 - P.v) * dt; P.roll += (0.35 - P.roll) * dt; P.pitch += (0.02 - P.pitch) * dt; P.tuck *= 0.9; P.yaw -= 0.25 * dt; dir.set(-Math.sin(P.yaw), 0, -Math.cos(P.yaw)); P.pos.addScaledVector(dir, P.v * dt); }
       world(dt); view(dt);
